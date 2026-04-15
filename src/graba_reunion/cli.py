@@ -111,7 +111,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Por defecto se usa diarización (pyannote + faster-whisper por API): "
-            "pipx install 'graba-reunion[diarize]', HF_TOKEN (o --hf-token) y aceptar las "
+            "HF_TOKEN (o --hf-token) y aceptar las "
             "condiciones en Hugging Face de pyannote/speaker-diarization-3.1 y "
             "pyannote/segmentation-3.0. Con --no-diarize solo hace falta el comando faster-whisper."
         ),

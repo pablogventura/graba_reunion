@@ -52,9 +52,8 @@ def _check_extra_imports() -> None:
     if missing:
         pkgs = ", ".join(missing)
         raise SystemExit(
-            "La diarización requiere dependencias que no están instaladas: "
-            f"{pkgs}. Instalá por ejemplo: pipx install 'graba-reunion[diarize]' "
-            "o pip install -e '.[diarize]'."
+            "Faltan dependencias para la diarización/transcripción: "
+            f"{pkgs}. Reinstalá el paquete (p. ej. pipx install graba-reunion o pip install -e .)."
         )
 
 

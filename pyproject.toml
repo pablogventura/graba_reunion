@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graba-reunion"
-version = "0.1.0"
-description = "Graba mic + monitor PulseAudio y transcribe con faster-whisper"
+version = "0.3.0"
+description = "Graba mic + monitor PulseAudio, transcribe y diariza con faster-whisper y pyannote"
 requires-python = ">=3.9"
 dependencies = []
+
+[project.optional-dependencies]
+diarize = [
+    "faster-whisper>=1.0.0",
+    "pyannote.audio>=3.1.0",
+    "torch>=2.0.0",
+]
 
 [project.scripts]
 graba-reunion = "graba_reunion.cli:main"

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -104,12 +106,65 @@ def clean_srt_to_txt() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Graba mic + monitor PulseAudio, transcribe y por defecto diariza (faster-whisper + pyannote).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Por defecto se usa diarización (pyannote + faster-whisper por API): "
+            "pipx install 'graba-reunion[diarize]', HF_TOKEN (o --hf-token) y aceptar las "
+            "condiciones en Hugging Face de pyannote/speaker-diarization-3.1 y "
+            "pyannote/segmentation-3.0. Con --no-diarize solo hace falta el comando faster-whisper."
+        ),
+    )
+    parser.add_argument(
+        "--no-diarize",
+        action="store_true",
+        help="Transcribir solo con el ejecutable faster-whisper (sin pyannote ni etiquetas de hablante).",
+    )
+    parser.add_argument(
+        "--hf-token",
+        default=None,
+        help="Token de Hugging Face (por defecto: variable HF_TOKEN; solo modo con diarización).",
+    )
+    parser.add_argument(
+        "--device",
+        choices=("cuda", "cpu"),
+        default=None,
+        help="Dispositivo para pyannote y faster-whisper (solo con diarización, que es el predeterminado).",
+    )
+    parser.add_argument(
+        "--compute-type",
+        default=None,
+        metavar="TIPO",
+        help="p. ej. float16, int8_float32 (solo con diarización; por defecto float16 en CUDA, int8 en CPU).",
+    )
+    args = parser.parse_args()
+
+    use_diarize = not args.no_diarize
+
     check_command("ffmpeg")
-    check_command("faster-whisper")
+    if not use_diarize:
+        check_command("faster-whisper")
 
     record_audio()
-    transcribe()
-    clean_srt_to_txt()
+
+    if use_diarize:
+        from graba_reunion.diarize_asr import transcribe_with_diarization
+
+        token = args.hf_token or os.environ.get("HF_TOKEN")
+        transcribe_with_diarization(
+            AUDIO_FILE,
+            LANGUAGE,
+            MODEL,
+            SRT_FILE,
+            TXT_FILE,
+            hf_token=token,
+            device=args.device,
+            compute_type=args.compute_type,
+        )
+    else:
+        transcribe()
+        clean_srt_to_txt()
 
     print("\nListo.")
     print(f"Audio:         {AUDIO_FILE}")

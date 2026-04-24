@@ -1,20 +1,28 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.4.0"
-description = "Graba mic + monitor PulseAudio, transcribe y diariza con faster-whisper y pyannote"
-requires-python = ">=3.9"
-dependencies = [
-    "faster-whisper>=1.0.0",
-    "pyannote.audio>=3.1.0",
-    "torch>=2.0.0",
+version = "0.1.0"
+description = "Graba micrófono + monitor PulseAudio y transcribe con faster-whisper"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["audio", "pulseaudio", "ffmpeg", "whisper", "recording"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 [project.scripts]
-graba-reunion = "graba_reunion.cli:main"
+graba-reunion = "graba_reunion.cli:entrypoint"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/graba_reunion"]

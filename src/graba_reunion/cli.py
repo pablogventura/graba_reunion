@@ -1,176 +1,265 @@
-#!/usr/bin/env python3
+"""
+Graba micrófono + monitor PulseAudio, mezcla a MP3 y transcribe con faster-whisper.
+"""
+from __future__ import annotations
+
 import argparse
 import os
+import re
+import signal
 import subprocess
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
-# === Configuración ===
-MIC_SOURCE = "alsa_input.usb-Kingston_Technology_Company_HyperX_Cloud_Flight_Wireless-00.mono-fallback"
-MONITOR_SOURCE = "alsa_output.usb-Kingston_Technology_Company_HyperX_Cloud_Flight_Wireless-00.analog-stereo.monitor"
-
-OUTPUT_BASENAME = "grabacion"
-AUDIO_FILE = f"{OUTPUT_BASENAME}.mp3"
-SRT_FILE = f"{OUTPUT_BASENAME}.srt"
-TXT_FILE = f"{OUTPUT_BASENAME}.txt"
-
-LANGUAGE = "es"
-MODEL = "large"   # podés cambiarlo por medium, small, etc.
+DEFAULT_MIC = (
+    "alsa_input.usb-Kingston_Technology_Company_HyperX_Cloud_Flight_Wireless-00.mono-fallback"
+)
+DEFAULT_MON = (
+    "alsa_output.usb-Kingston_Technology_Company_HyperX_Cloud_Flight_Wireless-00.analog-stereo.monitor"
+)
 
 
-def check_command(cmd: str) -> None:
-    if subprocess.run(["which", cmd], capture_output=True, text=True).returncode != 0:
-        print(f"Error: no encontré el comando '{cmd}' en el sistema.", file=sys.stderr)
-        sys.exit(1)
+@dataclass(frozen=True)
+class SessionPaths:
+    base: str
+    mp3: Path
+    srt: Path
+    txt: Path
 
 
-def record_audio() -> None:
-    ffmpeg_cmd = [
+def session_paths(output_dir: Path) -> SessionPaths:
+    base = f"reunion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    d = output_dir.resolve()
+    return SessionPaths(
+        base=base,
+        mp3=d / f"{base}.mp3",
+        srt=d / f"{base}.srt",
+        txt=d / f"{base}.txt",
+    )
+
+
+def srt_to_plaintext(srt_path: Path) -> str:
+    """Convierte SRT a un solo párrafo (respeta bloques y líneas de texto)."""
+    raw = srt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = re.split(r"\n\s*\n", raw.strip())
+    chunks: list[str] = []
+    for block in blocks:
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        i = 0
+        if lines[0].isdigit():
+            i = 1
+        if i < len(lines) and "-->" in lines[i]:
+            i += 1
+        text = " ".join(lines[i:])
+        if text:
+            chunks.append(text)
+    return " ".join(chunks)
+
+
+def build_ffmpeg_cmd(mic: str, mon: str, mp3: Path) -> list[str]:
+    return [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-nostdin",
+        "-f",
+        "pulse",
+        "-i",
+        mic,
+        "-f",
+        "pulse",
+        "-i",
+        mon,
+        "-filter_complex",
+        "amix=inputs=2:duration=longest:normalize=0",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "2",
         "-y",
-        "-f", "pulse",
-        "-i", MIC_SOURCE,
-        "-f", "pulse",
-        "-i", MONITOR_SOURCE,
-        "-filter_complex", "amix=inputs=2:duration=longest",
-        "-c:a", "libmp3lame",
-        "-q:a", "2",
-        AUDIO_FILE,
+        str(mp3),
     ]
 
-    print(f"Grabando en {AUDIO_FILE}...")
-    print("Apretá Enter para detener la grabación.\n")
 
-    proc = subprocess.Popen(ffmpeg_cmd)
+def transcribe(
+    mp3: Path,
+    *,
+    language: str,
+    model: str,
+    srt_out: Path,
+) -> None:
+    subprocess.run(
+        [
+            "faster-whisper",
+            str(mp3),
+            "-o",
+            str(srt_out),
+            "--language",
+            language,
+            "--model_size_or_path",
+            model,
+        ],
+        check=True,
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Graba reunión (mic + monitor) y transcribe a SRT/TXT."
+    )
+    p.add_argument(
+        "-d",
+        "--output-dir",
+        type=Path,
+        default=Path("."),
+        help="Directorio de salida (por defecto el actual).",
+    )
+    p.add_argument(
+        "--mic",
+        default=os.environ.get("GRABA_MIC", DEFAULT_MIC),
+        help="Fuente PulseAudio del micrófono (o variable GRABA_MIC).",
+    )
+    p.add_argument(
+        "--mon",
+        default=os.environ.get("GRABA_MON", DEFAULT_MON),
+        help="Monitor del auricular/salida (o variable GRABA_MON).",
+    )
+    p.add_argument(
+        "--language",
+        default="es",
+        help="Idioma para faster-whisper (por defecto es).",
+    )
+    p.add_argument(
+        "--model",
+        default=os.environ.get("GRABA_MODEL", "large-v3"),
+        dest="model_size_or_path",
+        help="Modelo faster-whisper (por defecto large-v3 o GRABA_MODEL).",
+    )
+    p.add_argument(
+        "--skip-transcribe",
+        action="store_true",
+        help="Solo grabar; no ejecutar faster-whisper al terminar.",
+    )
+    p.add_argument(
+        "--min-mp3-bytes",
+        type=int,
+        default=256,
+        metavar="N",
+        help="No transcribir si el MP3 es más pequeño que N bytes.",
+    )
+    return p.parse_args()
+
+
+def transcribe_and_write_txt(
+    mp3: Path,
+    srt: Path,
+    txt: Path,
+    *,
+    language: str,
+    model: str,
+    min_mp3_bytes: int,
+) -> int:
+    if not mp3.is_file() or mp3.stat().st_size < min_mp3_bytes:
+        print(
+            f"\nNo hay MP3 usable (falta archivo o < {min_mp3_bytes} bytes); "
+            "se omite la transcripción.",
+            file=sys.stderr,
+        )
+        if mp3.is_file():
+            print(mp3, file=sys.stderr)
+        return 1
+
+    print("\nTranscribiendo…")
+    try:
+        transcribe(
+            mp3,
+            language=language,
+            model=model,
+            srt_out=srt,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error en faster-whisper (código {e.returncode}).", file=sys.stderr)
+        return 1
 
     try:
-        input()
-    except KeyboardInterrupt:
-        pass
+        plain = srt_to_plaintext(srt)
+    except OSError as e:
+        print(f"No se pudo leer el SRT: {e}", file=sys.stderr)
+        return 1
 
-    print("Deteniendo grabación...")
-    proc.send_signal(subprocess.signal.SIGINT)
-    proc.wait()
-
-    if proc.returncode not in (0, 255):
-        print(f"ffmpeg terminó con código {proc.returncode}", file=sys.stderr)
-        sys.exit(proc.returncode)
-
-
-def transcribe() -> None:
-    cmd = [
-        "faster-whisper",
-        AUDIO_FILE,
-        "--language", LANGUAGE,
-        "--model", MODEL,
-    ]
-
-    print("Transcribiendo con faster-whisper...")
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print("Error al ejecutar faster-whisper.", file=sys.stderr)
-        sys.exit(result.returncode)
-
-    if not Path(SRT_FILE).exists():
-        print(f"No se generó {SRT_FILE}", file=sys.stderr)
-        sys.exit(1)
+    txt.write_text(plain, encoding="utf-8")
+    print("Listo:")
+    print(mp3)
+    print(srt)
+    print(txt)
+    return 0
 
 
-def clean_srt_to_txt() -> None:
-    print(f"Limpiando {SRT_FILE} -> {TXT_FILE}...")
+def main() -> int:
+    args = parse_args()
+    paths = session_paths(args.output_dir)
+    mp3, srt, txt = paths.mp3, paths.srt, paths.txt
 
-    lines_out = []
-    with open(SRT_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            stripped = line.strip()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
-            # eliminar líneas vacías
-            if not stripped:
-                continue
+    proc_holder: dict[str, subprocess.Popen | None] = {"p": None}
 
-            # eliminar numeración de subtítulos
-            if stripped.isdigit():
-                continue
+    def on_signal(_signum: int, _frame: object | None) -> None:
+        p = proc_holder["p"]
+        if p is not None and p.poll() is None:
+            p.terminate()
 
-            # eliminar timestamps
-            if "-->" in stripped:
-                continue
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGTERM, on_signal)
 
-            lines_out.append(stripped)
+    cmd = build_ffmpeg_cmd(args.mic, args.mon, mp3)
+    print(f"Grabando en {mp3}")
+    print("Para detener y transcribir: Ctrl+C o SIGTERM a este proceso.")
+    print(f"Mic: {args.mic}")
+    print(f"Monitor: {args.mon}")
 
-    text = "\n".join(lines_out).strip() + "\n"
+    proc = subprocess.Popen(cmd)
+    proc_holder["p"] = proc
+    ret = -1
+    try:
+        ret = proc.wait()
+    finally:
+        proc_holder["p"] = None
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
-    with open(TXT_FILE, "w", encoding="utf-8") as f:
-        f.write(text)
+    if args.skip_transcribe:
+        print("\nGrabación finalizada (sin transcripción).")
+        print(mp3)
+        exit_ffmpeg = 0 if ret == 0 else min(max(ret, 1), 255)
+        return exit_ffmpeg
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Graba mic + monitor PulseAudio, transcribe y por defecto diariza (faster-whisper + pyannote).",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Por defecto se usa diarización (pyannote + faster-whisper por API): "
-            "HF_TOKEN (o --hf-token) y aceptar las "
-            "condiciones en Hugging Face de pyannote/speaker-diarization-3.1 y "
-            "pyannote/segmentation-3.0. Con --no-diarize solo hace falta el comando faster-whisper."
-        ),
+    tx = transcribe_and_write_txt(
+        mp3,
+        srt,
+        txt,
+        language=args.language,
+        model=args.model_size_or_path,
+        min_mp3_bytes=args.min_mp3_bytes,
     )
-    parser.add_argument(
-        "--no-diarize",
-        action="store_true",
-        help="Transcribir solo con el ejecutable faster-whisper (sin pyannote ni etiquetas de hablante).",
-    )
-    parser.add_argument(
-        "--hf-token",
-        default=None,
-        help="Token de Hugging Face (por defecto: variable HF_TOKEN; solo modo con diarización).",
-    )
-    parser.add_argument(
-        "--device",
-        choices=("cuda", "cpu"),
-        default=None,
-        help="Dispositivo para pyannote y faster-whisper (solo con diarización, que es el predeterminado).",
-    )
-    parser.add_argument(
-        "--compute-type",
-        default=None,
-        metavar="TIPO",
-        help="p. ej. float16, int8_float32 (solo con diarización; por defecto float16 en CUDA, int8 en CPU).",
-    )
-    args = parser.parse_args()
 
-    use_diarize = not args.no_diarize
-
-    check_command("ffmpeg")
-    if not use_diarize:
-        check_command("faster-whisper")
-
-    record_audio()
-
-    if use_diarize:
-        from graba_reunion.diarize_asr import transcribe_with_diarization
-
-        token = args.hf_token or os.environ.get("HF_TOKEN")
-        transcribe_with_diarization(
-            AUDIO_FILE,
-            LANGUAGE,
-            MODEL,
-            SRT_FILE,
-            TXT_FILE,
-            hf_token=token,
-            device=args.device,
-            compute_type=args.compute_type,
-        )
-    else:
-        transcribe()
-        clean_srt_to_txt()
-
-    print("\nListo.")
-    print(f"Audio:         {AUDIO_FILE}")
-    print(f"Subtítulos:    {SRT_FILE}")
-    print(f"Transcripción: {TXT_FILE}")
+    if ret != 0:
+        print(f"ffmpeg terminó con código {ret}.", file=sys.stderr)
+        return min(max(ret, 1), 255)
+    return tx
 
 
-if __name__ == "__main__":
-    main()
+def entrypoint() -> None:
+    """Punto de entrada para console_scripts (pip / pipx)."""
+    sys.exit(main())

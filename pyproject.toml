@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.1.0"
-description = "Graba micrófono + monitor PulseAudio y transcribe con faster-whisper"
+version = "0.2.0"
+description = "Graba micrófono + monitor PulseAudio y transcribe con diarización (WhisperX)"
 requires-python = ">=3.10"
 license = "MIT"
-keywords = ["audio", "pulseaudio", "ffmpeg", "whisper", "recording"]
+keywords = ["audio", "pulseaudio", "ffmpeg", "whisper", "recording", "diarization"]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
@@ -20,6 +20,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+
+[project.optional-dependencies]
+diarize = ["whisperx"]
 
 [project.scripts]
 graba-reunion = "graba_reunion.cli:entrypoint"

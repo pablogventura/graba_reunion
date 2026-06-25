@@ -1,11 +1,12 @@
 """
-Graba micrófono + monitor PulseAudio, mezcla a MP3 y transcribe con faster-whisper.
+Graba micrófono + monitor PulseAudio, mezcla a MP3 y transcribe con diarización (WhisperX).
 """
 from __future__ import annotations
 
 import argparse
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -13,6 +14,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+# WhisperX + pyannote (valores de ../diarizacion/run_whisperx.sh)
+WHISPERX_BIN = (
+    Path(__file__).resolve().parents[2].parent / "diarizacion" / ".venv" / "bin" / "whisperx"
+)
+WHISPERX_MODEL = "large-v3"
+WHISPERX_LANGUAGE = "es"
+WHISPERX_DEVICE = "cuda"
+WHISPERX_COMPUTE_TYPE = "float16"
+WHISPERX_BATCH_SIZE = 16
+WHISPERX_SIDE_EXTENSIONS = (".srt", ".json", ".vtt", ".tsv")
 
 DEFAULT_MIC = (
     "alsa_input.usb-Kingston_Technology_Company_HyperX_Cloud_Flight_Wireless-00.mono-fallback"
@@ -39,6 +50,61 @@ def session_paths(output_dir: Path) -> SessionPaths:
         srt=d / f"{base}.srt",
         txt=d / f"{base}.txt",
     )
+
+
+def _diarizacion_dir() -> Path:
+    return Path(__file__).resolve().parents[2].parent / "diarizacion"
+
+
+def load_hf_token() -> str:
+    for key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        val = os.environ.get(key, "").strip()
+        if val:
+            return val
+    env_file = _diarizacion_dir() / ".env"
+    if not env_file.is_file():
+        return ""
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("HF_TOKEN="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def resolve_whisperx_bin() -> Path | None:
+    if WHISPERX_BIN.is_file():
+        return WHISPERX_BIN
+    found = shutil.which("whisperx")
+    return Path(found) if found else None
+
+
+def validate_diarization_prereqs() -> str | None:
+    if not load_hf_token():
+        return (
+            "HF_TOKEN no configurado. Exportalo o definilo en ../diarizacion/.env "
+            "(acceso a pyannote/speaker-diarization-community-1)."
+        )
+    if resolve_whisperx_bin() is None:
+        return (
+            "No se encontró whisperx. Instalá WhisperX en ../diarizacion (ver README) "
+            "o agregá whisperx al PATH."
+        )
+    return None
+
+
+def validate_faster_whisper_prereqs() -> str | None:
+    if shutil.which("faster-whisper") is None:
+        return "No se encontró faster-whisper en PATH (requerido con --no-diarize)."
+    return None
+
+
+def cleanup_whisperx_side_artifacts(output_dir: Path, base: str) -> None:
+    for ext in WHISPERX_SIDE_EXTENSIONS:
+        side = output_dir / f"{base}{ext}"
+        if side.is_file():
+            side.unlink()
 
 
 def srt_to_plaintext(srt_path: Path) -> str:
@@ -87,7 +153,7 @@ def build_ffmpeg_cmd(mic: str, mon: str, mp3: Path) -> list[str]:
     ]
 
 
-def transcribe(
+def transcribe_faster_whisper(
     mp3: Path,
     *,
     language: str,
@@ -109,9 +175,43 @@ def transcribe(
     )
 
 
+def transcribe_with_diarization(mp3: Path, *, output_dir: Path) -> None:
+    whisperx = resolve_whisperx_bin()
+    if whisperx is None:
+        raise FileNotFoundError(
+            "No se encontró whisperx. Instalá WhisperX (ver README) o verificá WHISPERX_BIN en cli.py."
+        )
+
+    subprocess.run(
+        [
+            str(whisperx),
+            str(mp3),
+            "--model",
+            WHISPERX_MODEL,
+            "--language",
+            WHISPERX_LANGUAGE,
+            "--diarize",
+            "--hf_token",
+            load_hf_token(),
+            "--device",
+            WHISPERX_DEVICE,
+            "--compute_type",
+            WHISPERX_COMPUTE_TYPE,
+            "--batch_size",
+            str(WHISPERX_BATCH_SIZE),
+            "--output_dir",
+            str(output_dir),
+            "--output_format",
+            "txt",
+        ],
+        check=True,
+        env={**os.environ, "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "true"},
+    )
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Graba reunión (mic + monitor) y transcribe a SRT/TXT."
+        description="Graba reunión (mic + monitor) y transcribe a TXT (con diarización por defecto)."
     )
     p.add_argument(
         "-d",
@@ -133,18 +233,29 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--language",
         default="es",
-        help="Idioma para faster-whisper (por defecto es).",
+        help="Idioma para faster-whisper con --no-diarize (por defecto es).",
     )
     p.add_argument(
         "--model",
         default=os.environ.get("GRABA_MODEL", "large-v3"),
         dest="model_size_or_path",
-        help="Modelo faster-whisper (por defecto large-v3 o GRABA_MODEL).",
+        help="Modelo faster-whisper con --no-diarize (por defecto large-v3 o GRABA_MODEL).",
+    )
+    p.add_argument(
+        "--transcribe-only",
+        type=Path,
+        metavar="MP3",
+        help="Transcribir un MP3 existente sin grabar.",
+    )
+    p.add_argument(
+        "--no-diarize",
+        action="store_true",
+        help="Transcribir con faster-whisper (TXT plano, sin etiquetas de hablante).",
     )
     p.add_argument(
         "--skip-transcribe",
         action="store_true",
-        help="Solo grabar; no ejecutar faster-whisper al terminar.",
+        help="Solo grabar; no transcribir al terminar.",
     )
     p.add_argument(
         "--min-mp3-bytes",
@@ -161,6 +272,8 @@ def transcribe_and_write_txt(
     srt: Path,
     txt: Path,
     *,
+    base: str,
+    diarize: bool,
     language: str,
     model: str,
     min_mp3_bytes: int,
@@ -175,9 +288,31 @@ def transcribe_and_write_txt(
             print(mp3, file=sys.stderr)
         return 1
 
+    if diarize:
+        print("\nTranscribiendo con diarización…")
+        try:
+            transcribe_with_diarization(mp3, output_dir=mp3.parent)
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        except subprocess.CalledProcessError as e:
+            print(f"Error en whisperx (código {e.returncode}).", file=sys.stderr)
+            return 1
+
+        if not txt.is_file():
+            print(f"No se generó el TXT esperado: {txt}", file=sys.stderr)
+            return 1
+
+        cleanup_whisperx_side_artifacts(mp3.parent, base)
+
+        print("Listo:")
+        print(mp3)
+        print(txt)
+        return 0
+
     print("\nTranscribiendo…")
     try:
-        transcribe(
+        transcribe_faster_whisper(
             mp3,
             language=language,
             model=model,
@@ -203,10 +338,45 @@ def transcribe_and_write_txt(
 
 def main() -> int:
     args = parse_args()
+
+    if args.transcribe_only is not None:
+        mp3 = args.transcribe_only.expanduser().resolve()
+        if not mp3.is_file():
+            print(f"No existe el MP3: {mp3}", file=sys.stderr)
+            return 1
+
+        if args.no_diarize:
+            err = validate_faster_whisper_prereqs()
+        else:
+            err = validate_diarization_prereqs()
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+
+        return transcribe_and_write_txt(
+            mp3,
+            mp3.with_suffix(".srt"),
+            mp3.with_suffix(".txt"),
+            base=mp3.stem,
+            diarize=not args.no_diarize,
+            language=args.language,
+            model=args.model_size_or_path,
+            min_mp3_bytes=args.min_mp3_bytes,
+        )
+
     paths = session_paths(args.output_dir)
     mp3, srt, txt = paths.mp3, paths.srt, paths.txt
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not args.skip_transcribe:
+        if args.no_diarize:
+            err = validate_faster_whisper_prereqs()
+        else:
+            err = validate_diarization_prereqs()
+        if err:
+            print(err, file=sys.stderr)
+            return 1
 
     proc_holder: dict[str, subprocess.Popen | None] = {"p": None}
 
@@ -249,6 +419,8 @@ def main() -> int:
         mp3,
         srt,
         txt,
+        base=paths.base,
+        diarize=not args.no_diarize,
         language=args.language,
         model=args.model_size_or_path,
         min_mp3_bytes=args.min_mp3_bytes,

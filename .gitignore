@@ -6,6 +6,9 @@ dist/
 build/
 *.mp3
 *.srt
+*.db
+*_minuta.md
 grabacion.txt
+.env
 .venv/
 venv/

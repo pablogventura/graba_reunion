@@ -14,6 +14,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from graba_reunion.db import (
+    get_meeting_by_rank,
+    insert_meeting,
+    list_meetings,
+    parse_session_timestamp,
+)
+from graba_reunion.groq_summary import DEFAULT_GROQ_MODEL, load_groq_api_key, summarize_transcript
+
 # WhisperX + pyannote (valores de ../diarizacion/run_whisperx.sh)
 WHISPERX_BIN = (
     Path(__file__).resolve().parents[2].parent / "diarizacion" / ".venv" / "bin" / "whisperx"
@@ -211,7 +219,7 @@ def transcribe_with_diarization(mp3: Path, *, output_dir: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Graba reunión (mic + monitor) y transcribe a TXT (con diarización por defecto)."
+        description="Graba reunión (mic + monitor), transcribe, genera minuta y guarda en SQLite."
     )
     p.add_argument(
         "-d",
@@ -221,50 +229,267 @@ def parse_args() -> argparse.Namespace:
         help="Directorio de salida (por defecto el actual).",
     )
     p.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Ruta SQLite (por defecto <output-dir>/reunions.db o GRABA_DB).",
+    )
+
+    subparsers = p.add_subparsers(dest="command")
+
+    list_p = subparsers.add_parser("list", help="Listar reuniones guardadas (1 = más reciente).")
+    _add_db_args(list_p)
+    list_p.set_defaults(command="list")
+
+    show_p = subparsers.add_parser(
+        "show",
+        help="Mostrar una reunión por número (1 = más reciente).",
+    )
+    _add_db_args(show_p)
+    show_p.add_argument(
+        "rank",
+        type=int,
+        metavar="N",
+        help="Número de reunión según list (1 = más reciente).",
+    )
+    show_p.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Mostrar la transcripción en lugar de la minuta.",
+    )
+    show_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Mostrar minuta y transcripción.",
+    )
+    show_p.set_defaults(command="show")
+
+    record_p = subparsers.add_parser("record", help="Grabar reunión (comportamiento por defecto).")
+    _add_db_args(record_p)
+    record_p.set_defaults(command="record")
+    _add_record_args(record_p)
+
+    if len(sys.argv) <= 1 or sys.argv[1] not in {"list", "show", "record", "-h", "--help"}:
+        _add_record_args(p)
+
+    return p.parse_args()
+
+
+def _add_db_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-d",
+        "--output-dir",
+        type=Path,
+        default=Path("."),
+        help="Directorio de salida (por defecto el actual).",
+    )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Ruta SQLite (por defecto <output-dir>/reunions.db o GRABA_DB).",
+    )
+
+
+def _add_record_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--mic",
         default=os.environ.get("GRABA_MIC", DEFAULT_MIC),
         help="Fuente PulseAudio del micrófono (o variable GRABA_MIC).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--mon",
         default=os.environ.get("GRABA_MON", DEFAULT_MON),
         help="Monitor del auricular/salida (o variable GRABA_MON).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--language",
         default="es",
         help="Idioma para faster-whisper con --no-diarize (por defecto es).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--model",
         default=os.environ.get("GRABA_MODEL", "large-v3"),
         dest="model_size_or_path",
         help="Modelo faster-whisper con --no-diarize (por defecto large-v3 o GRABA_MODEL).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--transcribe-only",
         type=Path,
         metavar="MP3",
         help="Transcribir un MP3 existente sin grabar.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--no-diarize",
         action="store_true",
         help="Transcribir con faster-whisper (TXT plano, sin etiquetas de hablante).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--skip-transcribe",
         action="store_true",
         help="Solo grabar; no transcribir al terminar.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--min-mp3-bytes",
         type=int,
         default=256,
         metavar="N",
         help="No transcribir si el MP3 es más pequeño que N bytes.",
     )
-    return p.parse_args()
+    parser.add_argument(
+        "--skip-groq",
+        action="store_true",
+        help="No generar título/minuta ni guardar en SQLite.",
+    )
+    parser.add_argument(
+        "--groq-model",
+        default=os.environ.get("GRABA_GROQ_MODEL", DEFAULT_GROQ_MODEL),
+        help=f"Modelo Groq para título y minuta (por defecto {DEFAULT_GROQ_MODEL}).",
+    )
+    parser.add_argument(
+        "--enrich-only",
+        type=Path,
+        metavar="TXT",
+        help="Generar título/minuta y guardar en SQLite desde un TXT existente.",
+    )
+
+
+def resolve_db_path(output_dir: Path, explicit: Path | None) -> Path:
+    if explicit is not None:
+        return explicit.expanduser().resolve()
+    env_db = os.environ.get("GRABA_DB", "").strip()
+    if env_db:
+        return Path(env_db).expanduser().resolve()
+    return output_dir.resolve() / "reunions.db"
+
+
+def cmd_list(db_path: Path) -> int:
+    if not db_path.is_file():
+        print(f"No existe la base de datos: {db_path}", file=sys.stderr)
+        return 1
+
+    meetings = list_meetings(db_path)
+    if not meetings:
+        print(f"No hay reuniones en {db_path}")
+        return 0
+
+    print(f"{'#':>3}  {'grabada':<20}  título")
+    for meeting in meetings:
+        recorded = meeting.recorded_at.replace("T", " ")[:19]
+        print(f"{meeting.rank:>3}  {recorded:<20}  {meeting.title}")
+    print(f"\nBase: {db_path}")
+    return 0
+
+
+def cmd_show(db_path: Path, rank: int, *, show_transcript: bool, show_all: bool) -> int:
+    if rank < 1:
+        print("El número debe ser >= 1 (1 = más reciente).", file=sys.stderr)
+        return 1
+    if not db_path.is_file():
+        print(f"No existe la base de datos: {db_path}", file=sys.stderr)
+        return 1
+
+    meeting = get_meeting_by_rank(db_path, rank)
+    if meeting is None:
+        total = len(list_meetings(db_path))
+        if total == 0:
+            print(f"No hay reuniones en {db_path}", file=sys.stderr)
+        else:
+            print(
+                f"No existe la reunión #{rank}. Hay {total} guardada(s); "
+                "usá graba-reunion list.",
+                file=sys.stderr,
+            )
+        return 1
+
+    recorded = meeting.recorded_at.replace("T", " ")[:19]
+    print(f"#{meeting.rank}  {meeting.title}")
+    print(f"Grabada: {recorded}")
+    print(f"Archivo: {meeting.txt_path}")
+    print(f"Audio:   {meeting.mp3_path}")
+    print()
+
+    if show_all:
+        print(meeting.minutes)
+        print()
+        print("--- Transcripción ---")
+        print()
+        print(meeting.transcript)
+    elif show_transcript:
+        print(meeting.transcript)
+    else:
+        print(meeting.minutes)
+    return 0
+
+
+def enrich_and_store(
+    *,
+    session_base: str,
+    mp3: Path,
+    txt: Path,
+    db_path: Path,
+    groq_model: str,
+) -> int:
+    try:
+        transcript = txt.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        print(f"No se pudo leer la transcripción: {e}", file=sys.stderr)
+        return 1
+
+    if not transcript:
+        print(f"La transcripción está vacía: {txt}", file=sys.stderr)
+        return 1
+
+    print("\nGenerando título y minuta con Groq…")
+    try:
+        summary = summarize_transcript(transcript, model=groq_model)
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error al llamar a Groq: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        stored = insert_meeting(
+            db_path,
+            session_base=session_base,
+            recorded_at=parse_session_timestamp(session_base),
+            mp3_path=mp3,
+            txt_path=txt,
+            transcript=transcript,
+            title=summary.title,
+            minutes=summary.minutes,
+            groq_model=summary.model,
+        )
+    except OSError as e:
+        print(f"No se pudo escribir en SQLite: {e}", file=sys.stderr)
+        return 1
+
+    minutes_path = txt.with_name(f"{session_base}_minuta.md")
+    try:
+        minutes_path.write_text(summary.minutes, encoding="utf-8")
+    except OSError as e:
+        print(f"No se pudo escribir la minuta: {e}", file=sys.stderr)
+        return 1
+
+    print("Guardado en SQLite:")
+    print(f"  #{stored.rank}  {stored.title}")
+    print(f"  db: {db_path}")
+    print(f"  minuta: {minutes_path}")
+    print(f"  ver: graba-reunion show {stored.rank}")
+    return 0
+
+
+def validate_groq_prereqs() -> str | None:
+    if not load_groq_api_key():
+        return (
+            "GROQ_API_KEY no configurado. Exportalo o definilo en .env "
+            "(raíz del proyecto)."
+        )
+    return None
 
 
 def transcribe_and_write_txt(
@@ -277,6 +502,9 @@ def transcribe_and_write_txt(
     language: str,
     model: str,
     min_mp3_bytes: int,
+    skip_groq: bool,
+    db_path: Path,
+    groq_model: str,
 ) -> int:
     if not mp3.is_file() or mp3.stat().st_size < min_mp3_bytes:
         print(
@@ -308,7 +536,15 @@ def transcribe_and_write_txt(
         print("Listo:")
         print(mp3)
         print(txt)
-        return 0
+        if skip_groq:
+            return 0
+        return enrich_and_store(
+            session_base=base,
+            mp3=mp3,
+            txt=txt,
+            db_path=db_path,
+            groq_model=groq_model,
+        )
 
     print("\nTranscribiendo…")
     try:
@@ -333,11 +569,51 @@ def transcribe_and_write_txt(
     print(mp3)
     print(srt)
     print(txt)
-    return 0
+    if skip_groq:
+        return 0
+    return enrich_and_store(
+        session_base=base,
+        mp3=mp3,
+        txt=txt,
+        db_path=db_path,
+        groq_model=groq_model,
+    )
 
 
 def main() -> int:
     args = parse_args()
+    db_path = resolve_db_path(args.output_dir, args.db)
+    command = getattr(args, "command", None)
+
+    if command == "list":
+        return cmd_list(db_path)
+    if command == "show":
+        return cmd_show(
+            db_path,
+            args.rank,
+            show_transcript=args.transcript,
+            show_all=args.all,
+        )
+
+    if args.enrich_only is not None:
+        txt = args.enrich_only.expanduser().resolve()
+        if not txt.is_file():
+            print(f"No existe el TXT: {txt}", file=sys.stderr)
+            return 1
+        err = validate_groq_prereqs()
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+        mp3 = txt.with_suffix(".mp3")
+        if not mp3.is_file():
+            mp3 = txt
+        return enrich_and_store(
+            session_base=txt.stem,
+            mp3=mp3,
+            txt=txt,
+            db_path=db_path,
+            groq_model=args.groq_model,
+        )
 
     if args.transcribe_only is not None:
         mp3 = args.transcribe_only.expanduser().resolve()
@@ -352,6 +628,11 @@ def main() -> int:
         if err:
             print(err, file=sys.stderr)
             return 1
+        if not args.skip_groq:
+            err = validate_groq_prereqs()
+            if err:
+                print(err, file=sys.stderr)
+                return 1
 
         return transcribe_and_write_txt(
             mp3,
@@ -362,6 +643,9 @@ def main() -> int:
             language=args.language,
             model=args.model_size_or_path,
             min_mp3_bytes=args.min_mp3_bytes,
+            skip_groq=args.skip_groq,
+            db_path=db_path,
+            groq_model=args.groq_model,
         )
 
     paths = session_paths(args.output_dir)
@@ -377,6 +661,11 @@ def main() -> int:
         if err:
             print(err, file=sys.stderr)
             return 1
+        if not args.skip_groq:
+            err = validate_groq_prereqs()
+            if err:
+                print(err, file=sys.stderr)
+                return 1
 
     proc_holder: dict[str, subprocess.Popen | None] = {"p": None}
 
@@ -424,6 +713,9 @@ def main() -> int:
         language=args.language,
         model=args.model_size_or_path,
         min_mp3_bytes=args.min_mp3_bytes,
+        skip_groq=args.skip_groq,
+        db_path=db_path,
+        groq_model=args.groq_model,
     )
 
     if ret != 0:

@@ -4,9 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.2.0"
-description = "Graba micrófono + monitor PulseAudio y transcribe con diarización (WhisperX)"
+version = "0.3.0"
+description = "Graba micrófono + monitor PulseAudio, transcribe y genera minuta (WhisperX + Groq)"
 requires-python = ">=3.10"
+dependencies = [
+    "groq>=0.11",
+]
 license = "MIT"
 keywords = ["audio", "pulseaudio", "ffmpeg", "whisper", "recording", "diarization"]
 classifiers = [

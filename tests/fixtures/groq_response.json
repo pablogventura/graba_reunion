@@ -1,0 +1,8 @@
+{
+  "title": "Reunión de prueba",
+  "summary": "Resumen breve.",
+  "topics": ["audio"],
+  "decisions": ["seguir"],
+  "action_items": [{"task": "verificar mic", "assignee": null, "deadline": null}],
+  "notes": ""
+}

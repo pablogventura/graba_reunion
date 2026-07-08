@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
+
 MAX_TRANSCRIPT_CHARS = 120_000
 
 
@@ -19,24 +18,8 @@ class MeetingSummary:
     model: str
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def load_groq_api_key() -> str:
-    val = os.environ.get("GROQ_API_KEY", "").strip()
-    if val:
-        return val
-    env_file = _project_root() / ".env"
-    if not env_file.is_file():
-        return ""
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("GROQ_API_KEY="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return ""
+    return load_settings().groq_api_key
 
 
 def truncate_transcript(text: str, max_chars: int = MAX_TRANSCRIPT_CHARS) -> tuple[str, bool]:

@@ -1,3 +1,6 @@
+reunion_*.txt
+*.txt
+!tests/fixtures/*.txt
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,3 +15,7 @@ grabacion.txt
 .env
 .venv/
 venv/
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/

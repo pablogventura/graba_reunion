@@ -9,6 +9,7 @@ dist/
 build/
 *.mp3
 *.srt
+!tests/fixtures/*.srt
 *.db
 *_minuta.md
 grabacion.txt

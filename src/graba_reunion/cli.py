@@ -17,7 +17,24 @@ SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps"}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Graba reunión (mic + monitor), transcribe, genera minuta y guarda en SQLite."
+        description="Graba reunión (mic + monitor), transcribe, genera minuta y guarda en SQLite.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+ejemplos:
+  graba-reunion
+      Grabar, transcribir y guardar en SQLite.
+  graba-reunion --transcribe-only reunion.mp3
+      Transcribir un MP3 existente (sin grabar).
+  graba-reunion --transcribe-only reunion.mp3 --skip-groq --no-diarize
+      Solo transcripción, sin Groq ni diarización.
+  graba-reunion record
+      Igual que sin subcomando; las mismas opciones aplican.
+  graba-reunion list
+      Listar reuniones (1 = más reciente).
+  graba-reunion show 1 --transcript
+      Ver transcripción de la reunión más reciente.
+
+Las opciones de grabación/transcripción funcionan con o sin el subcomando record.""",
     )
     parser.add_argument(
         "-d",
@@ -68,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     _add_record_args(record_parser)
     record_parser.set_defaults(command="record")
 
-    if len(sys.argv) <= 1 or sys.argv[1] not in SUBCOMMANDS.union({"-h", "--help"}):
+    if len(sys.argv) <= 1 or sys.argv[1] not in SUBCOMMANDS:
         _add_record_args(parser)
 
     return parser.parse_args()
@@ -87,19 +104,56 @@ def _add_record_args(parser: argparse.ArgumentParser) -> None:
         help="Fuente PulseAudio del micrófono.",
     )
     parser.add_argument("--mon", default=settings.graba_mon, help="Monitor PulseAudio de salida.")
-    parser.add_argument("--language", default=settings.faster_whisper_language)
+    parser.add_argument(
+        "--language",
+        default=settings.faster_whisper_language,
+        help="Idioma para Whisper (código ISO, p. ej. es).",
+    )
     parser.add_argument(
         "--model",
         default=settings.faster_whisper_model,
         dest="model_size_or_path",
+        help="Modelo faster-whisper (p. ej. large-v3).",
     )
-    parser.add_argument("--transcribe-only", type=Path, metavar="MP3")
-    parser.add_argument("--no-diarize", action="store_true")
-    parser.add_argument("--skip-transcribe", action="store_true")
-    parser.add_argument("--min-mp3-bytes", type=int, default=256, metavar="N")
-    parser.add_argument("--skip-groq", action="store_true")
-    parser.add_argument("--groq-model", default=settings.groq_model)
-    parser.add_argument("--enrich-only", type=Path, metavar="TXT")
+    parser.add_argument(
+        "--transcribe-only",
+        type=Path,
+        metavar="MP3",
+        help="Solo transcribir un MP3 existente (sin grabar).",
+    )
+    parser.add_argument(
+        "--no-diarize",
+        action="store_true",
+        help="Desactivar diarización de hablantes.",
+    )
+    parser.add_argument(
+        "--skip-transcribe",
+        action="store_true",
+        help="Grabar audio sin transcribir.",
+    )
+    parser.add_argument(
+        "--min-mp3-bytes",
+        type=int,
+        default=256,
+        metavar="N",
+        help="Tamaño mínimo del MP3 (bytes) para intentar transcribir.",
+    )
+    parser.add_argument(
+        "--skip-groq",
+        action="store_true",
+        help="No generar título ni minuta con Groq.",
+    )
+    parser.add_argument(
+        "--groq-model",
+        default=settings.groq_model,
+        help="Modelo Groq para título y minuta.",
+    )
+    parser.add_argument(
+        "--enrich-only",
+        type=Path,
+        metavar="TXT",
+        help="Solo enriquecer un TXT existente con Groq (título + minuta).",
+    )
 
 
 def main() -> int:

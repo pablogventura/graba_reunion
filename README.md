@@ -1,6 +1,6 @@
 # graba-reunion
 
-Graba reuniones (micrófono + audio del monitor PulseAudio), transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)) y genera título + minuta con [Groq](https://groq.com/), guardando todo en SQLite.
+Graba reuniones (micrófono + audio del monitor PulseAudio) y transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)). Opcionalmente (`--groq`) genera título + minuta con [Groq](https://groq.com/) y guarda en SQLite.
 
 ## Inicio rápido
 
@@ -90,7 +90,7 @@ El wizard `graba-reunion setup` lista fuentes y ayuda a elegirlas.
 
 | Variable | Obligatoria | Flujo | Descripción |
 |----------|-------------|-------|-------------|
-| `GROQ_API_KEY` | sí | minuta | API key de Groq |
+| `GROQ_API_KEY` | con `--groq` | minuta | API key de Groq |
 | `HF_TOKEN` | sí | diarización | Token Hugging Face |
 | `GRABA_MIC` | sí | grabar | Fuente PulseAudio del micrófono |
 | `GRABA_MON` | sí | grabar | Monitor PulseAudio |
@@ -109,14 +109,14 @@ Copiá `.env.example` a `.env` o usá `graba-reunion setup`.
 ## Comandos
 
 ```bash
-graba-reunion                  # grabar + transcribir + minuta
+graba-reunion                  # grabar + transcribir
+graba-reunion --groq           # + minuta Groq y SQLite
 graba-reunion setup            # wizard de configuración
 graba-reunion setup --install-deps -y  # reparar torch CUDA
 graba-reunion check-deps       # verificar dependencias
 graba-reunion list             # listar reuniones (1 = más reciente)
 graba-reunion show 1           # ver minuta de la última
 graba-reunion show 1 --transcript
-graba-reunion --skip-groq      # sin Groq ni SQLite
 graba-reunion --no-diarize     # faster-whisper sin speakers
 graba-reunion --enrich-only reunion_....txt
 ```
@@ -125,9 +125,10 @@ graba-reunion --enrich-only reunion_....txt
 
 | Modo | Archivos |
 |------|----------|
-| default | `.mp3`, `.txt`, `_minuta.md`, `reunions.db` |
-| `--skip-groq` | `.mp3`, `.txt` |
-| `--no-diarize` | `.mp3`, `.srt`, `.txt`, `_minuta.md` |
+| default | `.mp3`, `.txt` |
+| `--groq` | `.mp3`, `.txt`, `_minuta.md`, `reunions.db` |
+| `--no-diarize` | `.mp3`, `.srt`, `.txt` |
+| `--no-diarize --groq` | `.mp3`, `.srt`, `.txt`, `_minuta.md`, `reunions.db` |
 
 ## Migración desde ../diarizacion
 

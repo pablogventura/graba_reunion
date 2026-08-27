@@ -17,16 +17,18 @@ SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps"}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Graba reunión (mic + monitor), transcribe, genera minuta y guarda en SQLite.",
+        description="Graba reunión (mic + monitor) y transcribe. Con --groq genera minuta y guarda en SQLite.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 ejemplos:
   graba-reunion
-      Grabar, transcribir y guardar en SQLite.
+      Grabar y transcribir (sin minuta Groq).
+  graba-reunion --groq
+      Grabar, transcribir, minuta Groq y SQLite.
   graba-reunion --transcribe-only reunion.mp3
       Transcribir un MP3 existente (sin grabar).
-  graba-reunion --transcribe-only reunion.mp3 --skip-groq --no-diarize
-      Solo transcripción, sin Groq ni diarización.
+  graba-reunion --transcribe-only reunion.mp3 --no-diarize
+      Solo transcripción, sin diarización.
   graba-reunion record
       Igual que sin subcomando; las mismas opciones aplican.
   graba-reunion list
@@ -139,14 +141,19 @@ def _add_record_args(parser: argparse.ArgumentParser) -> None:
         help="Tamaño mínimo del MP3 (bytes) para intentar transcribir.",
     )
     parser.add_argument(
+        "--groq",
+        action="store_true",
+        help="Generar título y minuta con Groq y guardar en SQLite.",
+    )
+    parser.add_argument(
         "--skip-groq",
         action="store_true",
-        help="No generar título ni minuta con Groq.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--groq-model",
         default=settings.groq_model,
-        help="Modelo Groq para título y minuta.",
+        help="Modelo Groq para título y minuta (requiere --groq).",
     )
     parser.add_argument(
         "--enrich-only",
@@ -175,6 +182,15 @@ def main() -> int:
     if command == "check-deps":
         return cmd_check_deps()
 
+    enrich_only = getattr(args, "enrich_only", None)
+    # Por defecto sin minuta; --groq la activa. --enrich-only siempre usa Groq.
+    # --skip-groq queda oculto por compatibilidad (ahora es el default).
+    use_groq = bool(getattr(args, "groq", False))
+    if getattr(args, "skip_groq", False):
+        use_groq = False
+    if enrich_only is not None:
+        use_groq = True
+
     return run_record_flow(
         output_dir=args.output_dir,
         mic=getattr(args, "mic", ""),
@@ -182,10 +198,10 @@ def main() -> int:
         language=getattr(args, "language", "es"),
         model=getattr(args, "model_size_or_path", "large-v3"),
         transcribe_only=getattr(args, "transcribe_only", None),
-        enrich_only=getattr(args, "enrich_only", None),
+        enrich_only=enrich_only,
         no_diarize=getattr(args, "no_diarize", False),
         skip_transcribe=getattr(args, "skip_transcribe", False),
-        skip_groq=getattr(args, "skip_groq", False),
+        skip_groq=not use_groq,
         min_mp3_bytes=getattr(args, "min_mp3_bytes", 256),
         db_path=db_path,
         groq_model=getattr(args, "groq_model", DEFAULT_GROQ_MODEL),

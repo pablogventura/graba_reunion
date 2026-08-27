@@ -8,7 +8,7 @@ Guía mínima para agentes que trabajan en este repositorio.
 - CLI: argparse + subcomandos
 - Audio: ffmpeg + PulseAudio
 - Transcripción: WhisperX (default) o faster-whisper (`--no-diarize`)
-- Minuta: Groq API (`llama-3.3-70b-versatile`)
+- Minuta (opcional, `--groq`): Groq API (`llama-3.3-70b-versatile`)
 - Persistencia: SQLite (`reunions.db`)
 
 ## Comandos importantes

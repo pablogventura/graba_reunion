@@ -3,11 +3,23 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from graba_reunion.config import Settings, load_settings, resolve_whisperx_bin
 
 WHISPERX_SIDE_EXTENSIONS = (".srt", ".json", ".vtt", ".tsv")
+
+
+def whisperx_subprocess_cwd() -> str:
+    """CWD neutro para WhisperX/NLTK.
+
+    NLTK 3.10+ bloquea imports cuyo origen esté bajo el CWD (anti-hijacking).
+    Si el proceso corre desde $HOME y Python vive en ~/.local, el stdlib
+    (p. ej. optparse) cae en ese filtro y falla. Un temp dir evita el falso
+    positivo; las rutas del comando ya son absolutas.
+    """
+    return tempfile.gettempdir()
 
 
 def cleanup_whisperx_side_artifacts(output_dir: Path, base: str) -> None:
@@ -46,7 +58,7 @@ def transcribe_with_diarization(
     subprocess.run(
         [
             str(whisperx),
-            str(mp3),
+            str(mp3.resolve()),
             "--model",
             active.whisperx_model,
             "--language",
@@ -61,10 +73,11 @@ def transcribe_with_diarization(
             "--batch_size",
             str(active.whisperx_batch_size),
             "--output_dir",
-            str(output_dir),
+            str(output_dir.resolve()),
             "--output_format",
             "txt",
         ],
         check=True,
+        cwd=whisperx_subprocess_cwd(),
         env={**os.environ, "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "true"},
     )

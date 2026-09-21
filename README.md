@@ -1,150 +1,115 @@
 # graba-reunion
 
-Graba reuniones (micrófono + audio del monitor PulseAudio) y transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)). Opcionalmente (`--groq`) genera título + minuta con [Groq](https://groq.com/) y guarda en SQLite.
+Graba reuniones (micrófono + audio del monitor), transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)) y, si querés (`--groq`), genera título + minuta con [Groq](https://groq.com/) en SQLite.
+
+**Documentación completa:** [docs/guia-completa.md](docs/guia-completa.md)
 
 ## Inicio rápido
 
 ```bash
-# Instalación global (recomendada)
+# Instalación (desde el clone)
 bash scripts/pipx-install.sh
 
-# O venv local para desarrollo
-make setup
-
-# Configurar tokens y audio
+# Tokens, mic/monitor, device CPU/GPU
 graba-reunion setup
-
-# Verificar dependencias
 graba-reunion check-deps
 
-# Grabar reunión
+# Grabar + transcribir (sin minuta)
 graba-reunion
+# Ctrl+C para detener y transcribir
+
+# Con minuta Groq + SQLite
+graba-reunion --groq
 ```
 
-## Requisitos de sistema
+Salida por defecto: `~/.local/share/graba-reunion/recordings/`  
+Config: `~/.config/graba-reunion/.env`
 
-- Linux con PulseAudio
-- `ffmpeg` (`sudo apt install ffmpeg`)
-- Python 3.10+
-- GPU NVIDIA con CUDA recomendada para WhisperX
+## Qué hace
 
-## Instalación
+| Paso | Default | Opcional |
+|------|---------|----------|
+| Grabar mic + monitor (ffmpeg) | sí | `--skip-transcribe` solo audio |
+| Transcribir con speakers (WhisperX) | sí | `--no-diarize` (faster-whisper) |
+| Minuta + SQLite (Groq) | no | `--groq` / `--enrich-only` |
 
-### pipx (uso diario)
+## Requisitos
 
-WhisperX y faster-whisper se instalan como dependencias del paquete. Para torch con CUDA:
+- Linux + PulseAudio (o PipeWire-as-Pulse); ALSA opcional
+- `ffmpeg`
+- Python 3.10+ (pipx trae el venv)
+- [HF token](https://huggingface.co/settings/tokens) + aceptar licencias [pyannote diarization](https://huggingface.co/pyannote/speaker-diarization-community-1) y [segmentation](https://huggingface.co/pyannote/segmentation-3.0)
+- Groq API key solo si usás `--groq`
+- GPU NVIDIA recomendada; sin GPU: `device=cpu`
 
-```bash
-bash scripts/pipx-install.sh
-```
-
-Equivalente manual:
-
-```bash
-pipx install --force -e . \
-  --pip-args="--extra-index-url https://download.pytorch.org/whl/cu124"
-```
-
-### Desarrollo local
+## Comandos frecuentes
 
 ```bash
-make setup          # crea .venv + torch cu124 + pip install -e ".[dev]"
-make check          # ruff + pytest
-```
-
-## Cuenta Groq
-
-1. Crear API key en [console.groq.com](https://console.groq.com/)
-2. Modelo por defecto: `llama-3.3-70b-versatile` (`GRABA_GROQ_MODEL`)
-
-## Cuenta y modelos Hugging Face
-
-1. Crear token de lectura en [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-2. Aceptar condiciones de uso en:
-   - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
-   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-3. Pegar el token en `.env` como `HF_TOKEN`
-
-Sin estos pasos, WhisperX falla con error 401/403 al descargar modelos pyannote.
-
-## Modelos Whisper
-
-- Por defecto: `large-v3` (`GRABA_WHISPERX_MODEL`)
-- Se descargan automáticamente en el primer uso (~3 GB en `~/.cache`)
-- Modo `--no-diarize` usa `faster-whisper` con los mismos modelos, sin pyannote
-
-## PulseAudio
-
-Listar fuentes:
-
-```bash
-pactl list sources short
-```
-
-- `GRABA_MIC`: fuente del micrófono
-- `GRABA_MON`: monitor de la salida (termina en `.monitor`)
-
-El wizard `graba-reunion setup` lista fuentes y ayuda a elegirlas.
-
-## Variables de entorno
-
-| Variable | Obligatoria | Flujo | Descripción |
-|----------|-------------|-------|-------------|
-| `GROQ_API_KEY` | con `--groq` | minuta | API key de Groq |
-| `HF_TOKEN` | sí | diarización | Token Hugging Face |
-| `GRABA_MIC` | sí | grabar | Fuente PulseAudio del micrófono |
-| `GRABA_MON` | sí | grabar | Monitor PulseAudio |
-| `GRABA_GROQ_MODEL` | no | minuta | Modelo Groq (default `llama-3.3-70b-versatile`) |
-| `GRABA_WHISPERX_MODEL` | no | diarización | Modelo WhisperX (default `large-v3`) |
-| `GRABA_WHISPERX_LANGUAGE` | no | diarización | Idioma (default `es`) |
-| `GRABA_WHISPERX_DEVICE` | no | transcripción | `cuda` o `cpu` |
-| `GRABA_WHISPERX_COMPUTE_TYPE` | no | transcripción | `float16`, `int8`, etc. |
-| `GRABA_WHISPERX_BATCH_SIZE` | no | diarización | Batch size (default `16`) |
-| `GRABA_MODEL` | no | `--no-diarize` | Modelo faster-whisper |
-| `GRABA_LANGUAGE` | no | `--no-diarize` | Idioma faster-whisper |
-| `GRABA_DB` | no | SQLite | Ruta de `reunions.db` |
-
-Copiá `.env.example` a `.env` o usá `graba-reunion setup`.
-
-## Comandos
-
-```bash
-graba-reunion                  # grabar + transcribir
-graba-reunion --groq           # + minuta Groq y SQLite
-graba-reunion setup            # wizard de configuración
-graba-reunion setup --install-deps -y  # reparar torch CUDA
-graba-reunion check-deps       # verificar dependencias
-graba-reunion list             # listar reuniones (1 = más reciente)
-graba-reunion show 1           # ver minuta de la última
+graba-reunion                      # grabar + transcribir
+graba-reunion -d .                 # grabar en el CWD
+graba-reunion --groq               # + minuta y DB
+graba-reunion --language en --model medium --device cpu
+graba-reunion --transcribe-only archivo.mp3
+graba-reunion --enrich-only archivo.txt
+graba-reunion list
+graba-reunion show 1               # 1 = más reciente
 graba-reunion show 1 --transcript
-graba-reunion --no-diarize     # faster-whisper sin speakers
-graba-reunion --enrich-only reunion_....txt
+graba-reunion setup
+graba-reunion setup --install-deps -y
+graba-reunion check-deps
 ```
 
-## Salida por sesión
+## Configuración (resumen)
 
-| Modo | Archivos |
-|------|----------|
-| default | `.mp3`, `.txt` |
-| `--groq` | `.mp3`, `.txt`, `_minuta.md`, `reunions.db` |
-| `--no-diarize` | `.mp3`, `.srt`, `.txt` |
-| `--no-diarize --groq` | `.mp3`, `.srt`, `.txt`, `_minuta.md`, `reunions.db` |
+| Ruta | Rol |
+|------|-----|
+| `~/.config/graba-reunion/.env` | Config preferida |
+| `GRABA_CONFIG` | Override de ruta |
+| `.env` en el clone | Fallback de lectura; se migra a XDG en el primer `setup` |
+| `~/.local/share/graba-reunion/recordings/` | Grabaciones por defecto |
 
-## Migración desde ../diarizacion
+Plantilla de variables: [`.env.example`](.env.example).
 
-Si usabas el repo `diarizacion` hermano:
+Variables clave:
 
-1. Copiá `HF_TOKEN` al `.env` de este repo
-2. Instalá con `scripts/pipx-install.sh` o `make setup`
-3. Ya no hace falta `../diarizacion`
+- `GRABA_MIC` / `GRABA_MON` / `GRABA_AUDIO_BACKEND`
+- `HF_TOKEN`, `GROQ_API_KEY` (opcional)
+- `GRABA_WHISPERX_MODEL`, `LANGUAGE`, `DEVICE` (default `cpu`), `COMPUTE_TYPE`
+- `GRABA_OUTPUT_DIR`, `GRABA_SESSION_PREFIX`, `GRABA_DB`
 
-## Troubleshooting
+Detalle de cada variable, flujos y troubleshooting: **[guía completa](docs/guia-completa.md)**.
 
-| Problema | Solución |
-|----------|----------|
-| `whisperx` no encontrado | `bash scripts/pipx-install.sh` |
-| torch sin CUDA | `graba-reunion setup --install-deps -y` |
-| HF 401/403 | Aceptar modelos pyannote + verificar `HF_TOKEN` |
-| `ffmpeg` no encontrado | `sudo apt install ffmpeg` |
-| Sin audio en grabación | Revisar `GRABA_MIC` / `GRABA_MON` con `pactl` |
-| Groq inválido | Verificar `GROQ_API_KEY` en `.env` |
+## Instalación (detalle breve)
+
+```bash
+# pipx (uso diario)
+bash scripts/pipx-install.sh
+
+# desarrollo
+make setup
+make check
+```
+
+Índice torch CUDA: `GRABA_TORCH_INDEX` (default cu124).
+
+## Desarrollo
+
+Ver [AGENTS.md](AGENTS.md).
+
+```bash
+make test
+make lint
+make check
+```
+
+## Troubleshooting rápido
+
+| Problema | Acción |
+|----------|--------|
+| `whisperx` no encontrado | `graba-reunion setup --install-deps` |
+| HF 401/403 | Aceptar pyannote + revisar `HF_TOKEN` |
+| Sin CUDA | `device=cpu` o `setup --install-deps -y` |
+| Sin audio | `pactl list sources short` (mic vs `.monitor`) |
+| ¿Dónde está el `.env`? | `graba-reunion check-deps` |
+
+Más casos: [guía completa - Troubleshooting](docs/guia-completa.md#17-troubleshooting).

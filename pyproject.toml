@@ -4,8 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.4.0"
-description = "Graba micrófono + monitor PulseAudio, transcribe y genera minuta (WhisperX + Groq)"
+version = "0.5.0"
+description = "Graba micrófono + monitor, transcribe con WhisperX y opcionalmente minuta con Groq"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "groq>=0.11",
@@ -25,6 +26,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pablogventura/graba_reunion"
+Repository = "https://github.com/pablogventura/graba_reunion"
+Documentation = "https://github.com/pablogventura/graba_reunion/blob/main/docs/guia-completa.md"
+Issues = "https://github.com/pablogventura/graba_reunion/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.8"]

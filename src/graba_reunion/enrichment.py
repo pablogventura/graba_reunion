@@ -15,6 +15,7 @@ def enrich_and_store(
     txt: Path,
     db_path: Path,
     groq_model: str,
+    language: str | None = None,
 ) -> int:
     try:
         transcript = txt.read_text(encoding="utf-8").strip()
@@ -28,7 +29,7 @@ def enrich_and_store(
 
     print("\nGenerando título y minuta con Groq…")
     try:
-        summary = summarize_transcript(transcript, model=groq_model)
+        summary = summarize_transcript(transcript, model=groq_model, language=language)
     except RuntimeError as error:
         print(str(error), file=sys.stderr)
         return 1

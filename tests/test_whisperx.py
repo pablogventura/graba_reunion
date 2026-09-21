@@ -11,8 +11,8 @@ from graba_reunion.transcription.whisperx import (
 )
 
 
-def _settings() -> Settings:
-    return Settings(
+def _settings(**overrides: object) -> Settings:
+    base = dict(
         groq_api_key="",
         hf_token="hf_test",
         graba_mic="",
@@ -26,7 +26,15 @@ def _settings() -> Settings:
         faster_whisper_model="large-v3",
         faster_whisper_language="es",
         graba_db="",
+        output_dir="",
+        session_prefix="reunion",
+        audio_backend="pulse",
+        torch_index="https://download.pytorch.org/whl/cu124",
+        groq_max_chars=120_000,
+        groq_temperature=0.2,
     )
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
 
 
 def test_whisperx_subprocess_cwd_is_temp(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,12 +73,18 @@ def test_transcribe_with_diarization_uses_neutral_cwd(
         fake_run,
     )
 
-    transcribe_with_diarization(mp3, output_dir=tmp_path, settings=_settings())
+    transcribe_with_diarization(
+        mp3,
+        output_dir=tmp_path,
+        settings=_settings(whisperx_language="en", whisperx_model="tiny"),
+    )
 
     cmd = captured["cmd"]
     assert isinstance(cmd, list)
     assert captured["cwd"] == "/neutral-tmp"
     assert Path(cmd[1]).is_absolute()
+    assert cmd[cmd.index("--language") + 1] == "en"
+    assert cmd[cmd.index("--model") + 1] == "tiny"
     out_idx = cmd.index("--output_dir") + 1
     assert Path(cmd[out_idx]).is_absolute()
     env = captured["env"]

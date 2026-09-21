@@ -7,7 +7,14 @@ import sys
 from pathlib import Path
 
 
-def build_ffmpeg_cmd(mic: str, mon: str, mp3: Path) -> list[str]:
+def build_ffmpeg_cmd(
+    mic: str,
+    mon: str,
+    mp3: Path,
+    *,
+    backend: str = "pulse",
+) -> list[str]:
+    fmt = "alsa" if backend == "alsa" else "pulse"
     return [
         "ffmpeg",
         "-hide_banner",
@@ -15,11 +22,11 @@ def build_ffmpeg_cmd(mic: str, mon: str, mp3: Path) -> list[str]:
         "warning",
         "-nostdin",
         "-f",
-        "pulse",
+        fmt,
         "-i",
         mic,
         "-f",
-        "pulse",
+        fmt,
         "-i",
         mon,
         "-filter_complex",
@@ -33,7 +40,13 @@ def build_ffmpeg_cmd(mic: str, mon: str, mp3: Path) -> list[str]:
     ]
 
 
-def record_until_signal(mic: str, mon: str, mp3: Path) -> int:
+def record_until_signal(
+    mic: str,
+    mon: str,
+    mp3: Path,
+    *,
+    backend: str = "pulse",
+) -> int:
     proc_holder: dict[str, subprocess.Popen | None] = {"process": None}
 
     def on_signal(_signum: int, _frame: object | None) -> None:
@@ -44,9 +57,10 @@ def record_until_signal(mic: str, mon: str, mp3: Path) -> int:
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
-    command = build_ffmpeg_cmd(mic, mon, mp3)
+    command = build_ffmpeg_cmd(mic, mon, mp3, backend=backend)
     print(f"Grabando en {mp3}")
     print("Para detener y transcribir: Ctrl+C o SIGTERM a este proceso.")
+    print(f"Backend: {backend}")
     print(f"Mic: {mic}")
     print(f"Monitor: {mon}")
 

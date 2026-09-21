@@ -33,11 +33,13 @@ def validate_diarization_prereqs() -> str | None:
     settings = load_settings()
     if not settings.hf_token:
         return (
-            "HF_TOKEN no configurado. Exportalo, definilo en .env o ejecutá: graba-reunion setup"
+            "HF_TOKEN no configurado. Exportalo, definilo en la config "
+            "(~/.config/graba-reunion/.env) o ejecutá: graba-reunion setup"
         )
     if resolve_whisperx_bin() is None:
         return (
-            "No se encontró whisperx. Ejecutá: scripts/pipx-install.sh o make setup"
+            "No se encontró whisperx. Ejecutá: graba-reunion setup --install-deps "
+            "o bash scripts/pipx-install.sh"
         )
     return None
 
@@ -52,7 +54,8 @@ def transcribe_with_diarization(
     whisperx = resolve_whisperx_bin()
     if whisperx is None:
         raise FileNotFoundError(
-            "No se encontró whisperx. Ejecutá: scripts/pipx-install.sh o make setup"
+            "No se encontró whisperx. Ejecutá: graba-reunion setup --install-deps "
+            "o bash scripts/pipx-install.sh"
         )
 
     subprocess.run(

@@ -8,6 +8,7 @@ from graba_reunion.config import (
     is_torch_cuda_available,
     load_settings,
     missing_required_fields,
+    preferred_env_path,
     resolve_whisperx_bin,
 )
 from graba_reunion.deps_installer import detect_missing_deps
@@ -23,21 +24,14 @@ def cmd_check_deps() -> int:
         (
             "whisperx",
             whisperx is not None,
-            "scripts/pipx-install.sh o make setup",
+            "graba-reunion setup --install-deps",
         )
     )
     checks.append(
         (
             "faster-whisper",
             is_faster_whisper_importable(),
-            "scripts/pipx-install.sh o make setup",
-        )
-    )
-    checks.append(
-        (
-            "GROQ_API_KEY",
-            bool(settings.groq_api_key),
-            "graba-reunion setup",
+            "graba-reunion setup --install-deps",
         )
     )
     checks.append(
@@ -61,6 +55,13 @@ def cmd_check_deps() -> int:
             "graba-reunion setup",
         )
     )
+    checks.append(
+        (
+            "GROQ_API_KEY (opcional, --groq)",
+            bool(settings.groq_api_key),
+            "graba-reunion setup",
+        )
+    )
 
     print("Dependencias:")
     essential_ok = True
@@ -69,29 +70,34 @@ def cmd_check_deps() -> int:
         print(f"  [{status}] {name}")
         if not ok:
             print(f"         -> {hint}")
-            if name in {"ffmpeg", "whisperx", "GROQ_API_KEY", "HF_TOKEN"}:
+            if name in {"ffmpeg", "whisperx", "HF_TOKEN"}:
                 essential_ok = False
 
     cuda = is_torch_cuda_available()
+    print(f"  [info] device configurado: {settings.whisperx_device}")
     if settings.whisperx_device == "cuda":
         if cuda is True:
             print("  [OK] torch CUDA")
         elif cuda is False:
             print("  [WARN] torch CUDA no disponible (device=cuda)")
-            print("         -> scripts/pipx-install.sh")
+            print("         -> graba-reunion setup --install-deps -y")
         else:
             print("  [WARN] torch no importable")
-            print("         -> scripts/pipx-install.sh")
+            print("         -> graba-reunion setup --install-deps -y")
 
     missing_deps = detect_missing_deps()
     if missing_deps:
         print(f"\nPaquetes faltantes: {', '.join(missing_deps)}")
         print("Reparar: graba-reunion setup --install-deps")
 
-    if env_file_path().is_file():
-        print(f"\n.env: {env_file_path()}")
+    env_path = env_file_path()
+    preferred = preferred_env_path()
+    if env_path.is_file():
+        print(f"\n.env: {env_path}")
+        if env_path.resolve() != preferred.resolve():
+            print(f"       (escritura preferida: {preferred})")
     else:
-        print("\n.env: no existe (ejecutá graba-reunion setup)")
+        print(f"\n.env: no existe (ejecutá graba-reunion setup -> {preferred})")
 
     for flow in ("record", "diarize", "groq"):
         missing = missing_required_fields(flow)

@@ -6,10 +6,12 @@ Guía mínima para agentes que trabajan en este repositorio.
 
 - Python 3.10+, hatchling
 - CLI: argparse + subcomandos
-- Audio: ffmpeg + PulseAudio
+- Audio: ffmpeg + PulseAudio (ALSA opcional)
 - Transcripción: WhisperX (default) o faster-whisper (`--no-diarize`)
 - Minuta (opcional, `--groq`): Groq API (`llama-3.3-70b-versatile`)
 - Persistencia: SQLite (`reunions.db`)
+- Config: `$XDG_CONFIG_HOME/graba-reunion/.env` (override `GRABA_CONFIG`)
+- Salida default: `$XDG_DATA_HOME/graba-reunion/recordings`
 
 ## Comandos importantes
 
@@ -26,7 +28,7 @@ graba-reunion list
 graba-reunion show 1
 ```
 
-Detalle de setup, tokens HF y variables: ver [README.md](README.md).
+Detalle de setup, tokens HF y variables: ver [README.md](README.md) y la [guía completa](docs/guia-completa.md).
 
 ## Estructura
 
@@ -73,6 +75,7 @@ tests/                # pytest + fixtures
 
 ## Configuración
 
-- Secretos y audio: `.env` en la raíz (plantilla `.env.example`)
-- Wizard: `graba-reunion setup`
-- WhisperX viene en `dependencies`; torch CUDA requiere `scripts/pipx-install.sh` o `make setup`
+- Secretos y audio: `~/.config/graba-reunion/.env` (plantilla `.env.example`); fallback de lectura al `.env` del repo
+- Wizard: `graba-reunion setup` (migra el `.env` del repo a XDG al escribir)
+- Defaults sin GPU: `device=cpu`, `compute_type=int8`
+- WhisperX viene en `dependencies`; torch CUDA: `graba-reunion setup --install-deps` o `scripts/pipx-install.sh`

@@ -10,7 +10,8 @@ from graba_reunion.transcription.srt import segments_to_srt
 def validate_faster_whisper_prereqs() -> str | None:
     if not is_faster_whisper_importable():
         return (
-            "No se pudo importar faster-whisper. Ejecutá: scripts/pipx-install.sh o make setup"
+            "No se pudo importar faster-whisper. "
+            "Ejecutá: graba-reunion setup --install-deps"
         )
     return None
 

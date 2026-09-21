@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from graba_reunion.config import load_settings
+from graba_reunion.config import data_dir, load_settings
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,17 @@ class SessionPaths:
     txt: Path
 
 
-def session_paths(output_dir: Path) -> SessionPaths:
-    base = f"reunion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+def default_output_dir() -> Path:
+    settings = load_settings()
+    if settings.output_dir:
+        return Path(settings.output_dir).expanduser().resolve()
+    return (data_dir() / "recordings").resolve()
+
+
+def session_paths(output_dir: Path, *, prefix: str | None = None) -> SessionPaths:
+    settings = load_settings()
+    session_prefix = prefix or settings.session_prefix or "reunion"
+    base = f"{session_prefix}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     directory = output_dir.resolve()
     return SessionPaths(
         base=base,

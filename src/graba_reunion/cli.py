@@ -10,14 +10,17 @@ from graba_reunion.commands.list_show import cmd_list, cmd_show
 from graba_reunion.commands.record import run_record_flow
 from graba_reunion.commands.setup_cmd import cmd_setup
 from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
-from graba_reunion.paths import resolve_db_path
+from graba_reunion.paths import default_output_dir, resolve_db_path
 
 SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps"}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Graba reunión (mic + monitor) y transcribe. Con --groq genera minuta y guarda en SQLite.",
+        description=(
+            "Graba reunión (mic + monitor) y transcribe. "
+            "Con --groq genera minuta y guarda en SQLite."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 ejemplos:
@@ -25,6 +28,8 @@ ejemplos:
       Grabar y transcribir (sin minuta Groq).
   graba-reunion --groq
       Grabar, transcribir, minuta Groq y SQLite.
+  graba-reunion -d .
+      Grabar en el directorio actual (en vez del data dir).
   graba-reunion --transcribe-only reunion.mp3
       Transcribir un MP3 existente (sin grabar).
   graba-reunion --transcribe-only reunion.mp3 --no-diarize
@@ -42,8 +47,11 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
         "-d",
         "--output-dir",
         type=Path,
-        default=Path("."),
-        help="Directorio de salida (por defecto el actual).",
+        default=None,
+        help=(
+            "Directorio de salida (default: GRABA_OUTPUT_DIR o "
+            "$XDG_DATA_HOME/graba-reunion/recordings)."
+        ),
     )
     parser.add_argument(
         "--db",
@@ -94,7 +102,16 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
 
 
 def _add_db_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-d", "--output-dir", type=Path, default=Path("."))
+    parser.add_argument(
+        "-d",
+        "--output-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directorio de salida (default: GRABA_OUTPUT_DIR o "
+            "$XDG_DATA_HOME/graba-reunion/recordings)."
+        ),
+    )
     parser.add_argument("--db", type=Path, default=None, metavar="PATH")
 
 
@@ -103,19 +120,28 @@ def _add_record_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--mic",
         default=settings.graba_mic,
-        help="Fuente PulseAudio del micrófono.",
+        help="Fuente de micrófono (Pulse o ALSA según GRABA_AUDIO_BACKEND).",
     )
-    parser.add_argument("--mon", default=settings.graba_mon, help="Monitor PulseAudio de salida.")
+    parser.add_argument(
+        "--mon",
+        default=settings.graba_mon,
+        help="Monitor/mezcla de salida (Pulse o ALSA).",
+    )
     parser.add_argument(
         "--language",
-        default=settings.faster_whisper_language,
-        help="Idioma para Whisper (código ISO, p. ej. es).",
+        default=settings.whisperx_language,
+        help="Idioma para Whisper/WhisperX (código ISO, p. ej. es).",
     )
     parser.add_argument(
         "--model",
-        default=settings.faster_whisper_model,
+        default=settings.whisperx_model,
         dest="model_size_or_path",
-        help="Modelo faster-whisper (p. ej. large-v3).",
+        help="Modelo Whisper/WhisperX (p. ej. large-v3).",
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Dispositivo de inferencia (cuda/cpu). Default: GRABA_WHISPERX_DEVICE.",
     )
     parser.add_argument(
         "--transcribe-only",
@@ -166,7 +192,8 @@ def _add_record_args(parser: argparse.ArgumentParser) -> None:
 def main() -> int:
     args = parse_args()
     command = getattr(args, "command", None)
-    db_path = resolve_db_path(args.output_dir, args.db)
+    output_dir = args.output_dir if args.output_dir is not None else default_output_dir()
+    db_path = resolve_db_path(output_dir, args.db)
 
     if command == "list":
         return cmd_list(db_path)
@@ -183,8 +210,6 @@ def main() -> int:
         return cmd_check_deps()
 
     enrich_only = getattr(args, "enrich_only", None)
-    # Por defecto sin minuta; --groq la activa. --enrich-only siempre usa Groq.
-    # --skip-groq queda oculto por compatibilidad (ahora es el default).
     use_groq = bool(getattr(args, "groq", False))
     if getattr(args, "skip_groq", False):
         use_groq = False
@@ -192,11 +217,12 @@ def main() -> int:
         use_groq = True
 
     return run_record_flow(
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         mic=getattr(args, "mic", ""),
         mon=getattr(args, "mon", ""),
         language=getattr(args, "language", "es"),
         model=getattr(args, "model_size_or_path", "large-v3"),
+        device=getattr(args, "device", None),
         transcribe_only=getattr(args, "transcribe_only", None),
         enrich_only=enrich_only,
         no_diarize=getattr(args, "no_diarize", False),

@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from graba_reunion.config import load_settings
+from graba_reunion.config import load_settings, settings_with_overrides
 from graba_reunion.enrichment import enrich_and_store
 from graba_reunion.paths import SessionPaths, session_paths
 from graba_reunion.recording import record_until_signal
@@ -30,6 +30,7 @@ def transcribe_and_write_txt(
     diarize: bool,
     language: str,
     model: str,
+    device: str | None,
     min_mp3_bytes: int,
     skip_groq: bool,
     db_path: Path,
@@ -45,7 +46,12 @@ def transcribe_and_write_txt(
             print(mp3, file=sys.stderr)
         return 1
 
-    settings = load_settings()
+    settings = settings_with_overrides(
+        load_settings(),
+        language=language,
+        model=model,
+        device=device,
+    )
 
     if diarize:
         print("\nTranscribiendo con diarización…")
@@ -74,6 +80,7 @@ def transcribe_and_write_txt(
             txt=txt,
             db_path=db_path,
             groq_model=groq_model,
+            language=settings.whisperx_language,
         )
 
     print("\nTranscribiendo…")
@@ -81,8 +88,8 @@ def transcribe_and_write_txt(
         transcribe_to_srt(
             mp3,
             srt_out=srt,
-            language=language,
-            model=model,
+            language=settings.whisperx_language,
+            model=settings.whisperx_model,
             settings=settings,
         )
     except Exception as error:
@@ -108,6 +115,7 @@ def transcribe_and_write_txt(
         txt=txt,
         db_path=db_path,
         groq_model=groq_model,
+        language=settings.whisperx_language,
     )
 
 
@@ -118,6 +126,7 @@ def run_record_flow(
     mon: str,
     language: str,
     model: str,
+    device: str | None = None,
     transcribe_only: Path | None,
     enrich_only: Path | None,
     no_diarize: bool,
@@ -146,6 +155,8 @@ def run_record_flow(
     if configured != 0:
         return configured
 
+    settings = load_settings()
+
     if enrich_only is not None:
         txt = enrich_only.expanduser().resolve()
         if not txt.is_file():
@@ -160,6 +171,7 @@ def run_record_flow(
             txt=txt,
             db_path=db_path,
             groq_model=groq_model,
+            language=language or settings.whisperx_language,
         )
 
     if transcribe_only is not None:
@@ -182,6 +194,7 @@ def run_record_flow(
             diarize=not no_diarize,
             language=language,
             model=model,
+            device=device,
             min_mp3_bytes=min_mp3_bytes,
             skip_groq=skip_groq,
             db_path=db_path,
@@ -200,14 +213,18 @@ def run_record_flow(
             print(error, file=sys.stderr)
             return 1
 
-    settings = load_settings()
     active_mic = mic or settings.graba_mic
     active_mon = mon or settings.graba_mon
     if not active_mic or not active_mon:
         print("GRABA_MIC y GRABA_MON son obligatorios.", file=sys.stderr)
         return 1
 
-    record_code = record_until_signal(active_mic, active_mon, paths.mp3)
+    record_code = record_until_signal(
+        active_mic,
+        active_mon,
+        paths.mp3,
+        backend=settings.audio_backend,
+    )
     if skip_transcribe:
         print("\nGrabación finalizada (sin transcripción).")
         print(paths.mp3)
@@ -221,6 +238,7 @@ def run_record_flow(
         diarize=not no_diarize,
         language=language,
         model=model,
+        device=device,
         min_mp3_bytes=min_mp3_bytes,
         skip_groq=skip_groq,
         db_path=db_path,

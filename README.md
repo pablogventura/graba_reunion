@@ -58,6 +58,8 @@ graba-reunion show 1 --transcript
 graba-reunion search "entrega del laboratorio"
 graba-reunion search --word "acta"
 graba-reunion search --participant Pablo "presupuesto"
+graba-reunion phrases archivo.mp3
+graba-reunion view
 graba-reunion setup
 graba-reunion setup --install-deps -y
 graba-reunion check-deps
@@ -84,7 +86,7 @@ Variables clave:
 
 ## Indicador automático
 
-`graba-reunion-mic` graba la reunión cuando otra app abre el micrófono (Discord, Meet, Teams, etc.). El icono se ve en uso solo mientras está grabando; si no, queda como micrófono libre aunque otra app lo tenga abierto. Espera 3 segundos para arrancar y 10 para cortar al colgar. Si la toma dura menos de un minuto, borra el audio. Si dura más, transcribe sin Groq. El menú del icono lista las transcripciones de las últimas 24 horas; un clic en el aviso o en el nombre abre el `.txt` con el editor predeterminado.
+`graba-reunion-mic` graba la reunión cuando otra app abre el micrófono (Discord, Meet, Teams, etc.). El icono se ve en uso solo mientras está grabando; si no, queda como micrófono libre aunque otra app lo tenga abierto. Espera 3 segundos para arrancar y 10 para cortar al colgar. Si la toma dura menos de un minuto, borra el audio. Si dura más, transcribe sin Groq. El menú del icono lista las transcripciones de las últimas 24 horas. Un clic en el aviso, en el nombre o en un resultado de búsqueda abre el visor en esa reunión. Desde ahí se lee el texto o la minuta. **Ver conversaciones** abre el listado. `graba-reunion view` hace lo mismo. `graba-reunion phrases archivo.mp3` regenera los tiempos de una grabación ya hecha.
 
 Con el micrófono libre, **Grabar** arranca una toma a mano. Si nadie más usa el micrófono, se corta sola tras 10 minutos de silencio en el audio. Si otra app lo abre y lo suelta, vuelve el corte a los 10 segundos. Mientras graba: **Pausar** congela el audio (el silencio no corta la toma), **Detener** aplica la regla de duración y **Cancelar** abre un cuadro para confirmar antes de borrar el MP3. **Salir** equivale a Detener. **Buscar** abre un diálogo de tema, palabra o participante.
 

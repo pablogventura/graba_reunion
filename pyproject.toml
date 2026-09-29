@@ -43,6 +43,11 @@ graba-reunion = "graba_reunion.cli:entrypoint"
 [tool.hatch.build.targets.wheel]
 packages = ["src/graba_reunion"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/graba_reunion/viewer/index.html" = "graba_reunion/viewer/index.html"
+"src/graba_reunion/viewer/app.js" = "graba_reunion/viewer/app.js"
+"src/graba_reunion/viewer/app.css" = "graba_reunion/viewer/app.css"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

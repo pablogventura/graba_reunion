@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -18,7 +19,7 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 gi.require_version("Notify", "0.7")
 
 from gi.repository import AyatanaAppIndicator3 as AppIndicator  # noqa: E402
-from gi.repository import GLib, Gtk, Notify  # noqa: E402
+from gi.repository import GLib, Gtk, Notify, Pango  # noqa: E402
 
 from graba_reunion.config import data_dir  # noqa: E402
 from graba_reunion.mic_watch import (  # noqa: E402
@@ -38,7 +39,10 @@ from graba_reunion.mic_watch import (  # noqa: E402
     unfinished_recordings,
 )
 from graba_reunion.paths import default_output_dir  # noqa: E402
+from graba_reunion.phrases import start_for_clock  # noqa: E402
 from graba_reunion.search import search_command  # noqa: E402
+from graba_reunion.timing import add_pause, probe_duration_seconds  # noqa: E402
+from graba_reunion.viewer import view_command  # noqa: E402
 
 POLL_SECONDS = 1
 ICON_IDLE = "microphone-disabled-symbolic"
@@ -93,17 +97,48 @@ def log_line(message: str) -> None:
         return
 
 
-def open_text_file(path: Path) -> None:
-    """Abre el archivo con la app predeterminada del escritorio (texto, si es .txt)."""
+def _append_search_column(
+    tree: Gtk.TreeView,
+    title: str,
+    index: int,
+    *,
+    expand: bool,
+    wrap: bool = False,
+) -> None:
+    cell = Gtk.CellRendererText()
+    cell.set_property("ypad", 4)
+    if wrap:
+        cell.set_property("wrap-mode", Pango.WrapMode.WORD_CHAR)
+        cell.set_property("wrap-width", 460)
+    column = Gtk.TreeViewColumn(title, cell, text=index)
+    column.set_resizable(True)
+    column.set_expand(expand)
+    if not expand:
+        column.set_min_width(90)
+    tree.append_column(column)
+
+
+def meeting_stamp(path: Path) -> str:
+    """Fecha legible a partir de reunion_AAAA-MM-DD_HH-MM-SS."""
+    match = re.search(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})", path.stem)
+    if match is None:
+        return path.stem
+    return f"{match.group(1)} {match.group(2)}:{match.group(3)}"
+
+
+def open_viewer(path: Path | None = None, *, clock: str = "") -> None:
+    """Abre el visor. Con path, en esa reunión; con clock, en esa frase si hay JSON."""
+    meeting_id = path.stem if path is not None else ""
+    start = start_for_clock(path, clock) if path is not None and clock else None
     try:
+        command = view_command(graba_reunion_bin(), meeting_id=meeting_id, start=start)
         subprocess.Popen(
-            ["xdg-open", str(path)],
+            command,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
     except OSError as error:
-        log_line(f"no se pudo abrir {path}: {error}")
+        log_line(f"no se pudo abrir el visor: {error}")
 
 
 _live_notes: list[Notify.Notification] = []
@@ -115,12 +150,12 @@ def _drop_note(note: Notify.Notification, *_args: object) -> None:
 
 
 def _on_notify_open(note: Notify.Notification, _action: str, path_text: str) -> None:
-    open_text_file(Path(path_text))
+    open_viewer(Path(path_text))
     note.close()
 
 
 def gnome_notify(summary: str, body: str, *, open_path: Path | None = None) -> None:
-    """Aviso en el escritorio. Si hay open_path, el clic abre ese archivo."""
+    """Aviso en el escritorio. Si hay open_path, el clic abre el visor en esa reunión."""
     try:
         if not Notify.is_initted():
             Notify.init("graba-reunion")
@@ -165,6 +200,8 @@ class MicIndicator:
         self._silence_checked_at = 0.0
         self._silence_probe_on = False
         self._cancel_dialog: Gtk.MessageDialog | None = None
+        self._pause_wall: datetime | None = None
+        self._pause_audio_at: float | None = None
         self._search_dialog: Gtk.Dialog | None = None
         self._status_key: tuple[object, ...] | None = None
         log_line("indicador iniciado")
@@ -323,6 +360,7 @@ class MicIndicator:
         if proc is None or proc.poll() is not None:
             return
         if self.paused:
+            self._save_pause()
             self._signal_tree(signal.SIGCONT)
             self._close_pause_interval()
             self.paused = False
@@ -541,6 +579,9 @@ class MicIndicator:
         search_item = Gtk.MenuItem(label="Buscar")
         search_item.connect("activate", self._on_search)
         self.menu.append(search_item)
+        view_item = Gtk.MenuItem(label="Ver conversaciones")
+        view_item.connect("activate", self._on_view)
+        self.menu.append(view_item)
         if self._record_alive() and self.paused:
             resume_item = Gtk.MenuItem(label="Reanudar")
             resume_item.connect("activate", self._on_resume)
@@ -588,6 +629,9 @@ class MicIndicator:
     def _on_pause(self, *_args: object) -> None:
         if not self._record_alive():
             return
+        if self.mp3 is not None:
+            self._pause_audio_at = probe_duration_seconds(self.mp3)
+        self._pause_wall = datetime.now()
         self._signal_tree(signal.SIGSTOP)
         self.paused = True
         self.pause_started = GLib.get_monotonic_time() / 1_000_000
@@ -596,9 +640,20 @@ class MicIndicator:
         log_line("grabación en pausa")
         self._paint()
 
+    def _save_pause(self) -> None:
+        wall = self._pause_wall
+        audio_at = self._pause_audio_at
+        self._pause_wall = None
+        self._pause_audio_at = None
+        if self.mp3 is None or wall is None or audio_at is None:
+            return
+        paused_seconds = (datetime.now() - wall).total_seconds()
+        add_pause(self.mp3, audio_at, paused_seconds)
+
     def _on_resume(self, *_args: object) -> None:
         if not self._record_alive():
             return
+        self._save_pause()
         self._close_pause_interval()
         self._signal_tree(signal.SIGCONT)
         self.paused = False
@@ -637,6 +692,7 @@ class MicIndicator:
             return
         self.cancel_requested = True
         if self.paused:
+            self._save_pause()
             self._signal_tree(signal.SIGCONT)
             self.paused = False
             self.pause_started = None
@@ -648,7 +704,7 @@ class MicIndicator:
             self._search_dialog.present()
             return
         dialog = Gtk.Dialog(title="Buscar en las reuniones")
-        dialog.set_default_size(560, 420)
+        dialog.set_default_size(880, 520)
         box = dialog.get_content_area()
         box.set_spacing(6)
         box.set_border_width(8)
@@ -661,9 +717,17 @@ class MicIndicator:
         participant = Gtk.Entry()
         participant.set_placeholder_text("Participante (opcional)")
         button = Gtk.Button(label="Buscar")
-        store = Gtk.ListStore(str, str)
+        status = Gtk.Label(label="")
+        status.set_xalign(0)
+        store = Gtk.ListStore(str, str, str, str, str, str)
         tree = Gtk.TreeView(model=store)
-        tree.append_column(Gtk.TreeViewColumn("Resultado", Gtk.CellRendererText(), text=0))
+        tree.set_headers_visible(True)
+        tree.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
+        _append_search_column(tree, "Relevancia", 0, expand=False)
+        _append_search_column(tree, "Reunión", 1, expand=False)
+        _append_search_column(tree, "Hora", 2, expand=False)
+        _append_search_column(tree, "Quién", 3, expand=False)
+        _append_search_column(tree, "Texto", 4, expand=True, wrap=True)
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.add(tree)
@@ -672,14 +736,15 @@ class MicIndicator:
         box.pack_start(mode, False, False, 0)
         box.pack_start(participant, False, False, 0)
         box.pack_start(button, False, False, 0)
+        box.pack_start(status, False, False, 0)
         box.pack_start(scrolled, True, True, 0)
         button.connect(
             "clicked",
-            lambda *_a: self._run_search(query, mode, participant, store, button),
+            lambda *_a: self._run_search(query, mode, participant, store, button, status),
         )
         query.connect(
             "activate",
-            lambda *_a: self._run_search(query, mode, participant, store, button),
+            lambda *_a: self._run_search(query, mode, participant, store, button, status),
         )
         tree.connect("row-activated", self._on_search_row, store)
         dialog.connect("delete-event", self._on_search_close)
@@ -697,8 +762,11 @@ class MicIndicator:
         participant: Gtk.Entry,
         store: Gtk.ListStore,
         button: Gtk.Button,
+        status: Gtk.Label,
     ) -> None:
         button.set_sensitive(False)
+        button.set_label("Buscando...")
+        status.set_text("Buscando...")
         store.clear()
         text = query.get_text()
         who = participant.get_text()
@@ -712,8 +780,7 @@ class MicIndicator:
                 output_dir=default_output_dir(),
             )
         except FileNotFoundError as error:
-            store.append([str(error), ""])
-            button.set_sensitive(True)
+            self._finish_search(button, status, str(error))
             return
 
         def worker() -> None:
@@ -725,12 +792,13 @@ class MicIndicator:
                     check=False,
                 )
             except OSError as error:
-                GLib.idle_add(self._show_search_error, store, button, str(error))
+                GLib.idle_add(self._show_search_error, store, button, status, str(error))
                 return
             GLib.idle_add(
                 self._show_search_results,
                 store,
                 button,
+                status,
                 completed.returncode,
                 completed.stdout,
                 completed.stderr,
@@ -738,43 +806,63 @@ class MicIndicator:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _show_search_error(self, store: Gtk.ListStore, button: Gtk.Button, message: str) -> bool:
-        store.clear()
-        store.append([message, ""])
+    def _finish_search(self, button: Gtk.Button, status: Gtk.Label, message: str) -> None:
+        button.set_label("Buscar")
         button.set_sensitive(True)
+        status.set_text(message)
+
+    def _show_search_error(
+        self,
+        store: Gtk.ListStore,
+        button: Gtk.Button,
+        status: Gtk.Label,
+        message: str,
+    ) -> bool:
+        store.clear()
+        self._finish_search(button, status, message)
         return False
 
     def _show_search_results(
         self,
         store: Gtk.ListStore,
         button: Gtk.Button,
+        status: Gtk.Label,
         code: int,
         stdout: str,
         stderr: str,
     ) -> bool:
         store.clear()
         if code != 0:
-            store.append([(stderr or "La búsqueda falló.").strip(), ""])
-            button.set_sensitive(True)
+            self._finish_search(button, status, (stderr or "La búsqueda falló.").strip())
             return False
         try:
             payload = json.loads(stdout or "[]")
         except json.JSONDecodeError:
-            store.append(["La búsqueda no devolvió JSON.", ""])
-            button.set_sensitive(True)
+            self._finish_search(button, status, "La búsqueda no devolvió JSON.")
             return False
         if not payload:
-            store.append(["Sin resultados.", ""])
+            self._finish_search(button, status, "Sin resultados.")
+            return False
         for item in payload:
-            speaker = item.get("speaker") or ""
-            snippet = item.get("snippet") or ""
-            label = f"{Path(item.get('path') or '').name}"
-            if speaker:
-                label = f"{label}  {speaker}"
-            if snippet:
-                label = f"{label}: {snippet}"
-            store.append([label, item.get("path") or ""])
-        button.set_sensitive(True)
+            path_text = item.get("path") or ""
+            score = item.get("score")
+            if isinstance(score, (int, float)):
+                score_text = f"{round(score * 100)}%"
+            else:
+                score_text = ""
+            store.append(
+                [
+                    score_text,
+                    meeting_stamp(Path(path_text)),
+                    item.get("spoken_at") or "",
+                    item.get("speaker") or "",
+                    item.get("snippet") or "",
+                    path_text,
+                ]
+            )
+        count = len(payload)
+        noun = "resultado" if count == 1 else "resultados"
+        self._finish_search(button, status, f"{count} {noun}")
         return False
 
     def _on_search_row(
@@ -784,12 +872,16 @@ class MicIndicator:
         _column: Gtk.TreeViewColumn,
         store: Gtk.ListStore,
     ) -> None:
-        target = store[path][1]
+        target = store[path][5]
+        clock = store[path][2]
         if target:
-            open_text_file(Path(target))
+            open_viewer(Path(target), clock=clock)
+
+    def _on_view(self, *_args: object) -> None:
+        open_viewer()
 
     def _on_open_transcript(self, _item: Gtk.MenuItem, path_text: str) -> None:
-        open_text_file(Path(path_text))
+        open_viewer(Path(path_text))
 
     def _on_stop(self, *_args: object) -> None:
         self.stop_requested = True

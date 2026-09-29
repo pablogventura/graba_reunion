@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conversaciones</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="list-pane">
+      <h1>Conversaciones</h1>
+      <ul id="meetings"></ul>
+    </aside>
+    <main>
+      <header class="meeting-head">
+        <h2 id="title">Elegí una reunión</h2>
+        <p id="when"></p>
+        <div class="prompts">
+          <button type="button" data-prompt="minutes" disabled>Minuta con acciones</button>
+          <button type="button" data-prompt="cursor" disabled>Prompt para Cursor</button>
+          <button type="button" data-prompt="speakers" disabled>Voces sin nombre</button>
+        </div>
+        <p id="prompt-status" class="note" hidden></p>
+        <textarea id="prompt-fallback" hidden></textarea>
+        <audio id="player" controls preload="metadata"></audio>
+      </header>
+      <nav class="tabs">
+        <button type="button" data-tab="conversation">Conversación</button>
+        <button type="button" data-tab="text">Texto</button>
+        <button type="button" data-tab="minutes" hidden>Minuta</button>
+      </nav>
+      <section id="conversation"></section>
+      <section id="text" hidden></section>
+      <section id="minutes" hidden></section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

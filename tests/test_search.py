@@ -22,6 +22,16 @@ def test_parse_chunks_keeps_speaker() -> None:
     ]
 
 
+def test_parse_chunks_keeps_clock() -> None:
+    chunks = parse_chunks(
+        Path("reunion.txt"),
+        "[13:10:25] [Pablo]: medicina preventiva\n",
+    )
+    assert chunks[0].spoken_at == "13:10:25"
+    assert chunks[0].speaker == "Pablo"
+    assert chunks[0].text == "medicina preventiva"
+
+
 def test_literal_search_and_participant(tmp_path: Path) -> None:
     _write(tmp_path, "a.txt", "[Pablo]: hay que entregar el laboratorio\n[Nano]: el acta\n")
     word_hits = search_transcripts(tmp_path, "ACTA", word=True)

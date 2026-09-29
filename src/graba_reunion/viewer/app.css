@@ -1,0 +1,183 @@
+:root {
+  color: #1c1915;
+  background: #f4f0e6;
+  font-family: "Segoe UI", "Liberation Sans", sans-serif;
+  line-height: 1.45;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+.list-pane {
+  background: #e7e1d4;
+  border-right: 1px solid #d5cdbc;
+  padding: 16px 12px 32px;
+}
+
+.list-pane h1 {
+  margin: 4px 8px 12px;
+  font-size: 1.05rem;
+}
+
+#meetings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#meetings button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#meetings button strong,
+#meetings button span {
+  display: block;
+}
+
+#meetings button span {
+  color: #5c564c;
+  font-size: 0.85rem;
+}
+
+#meetings button.active,
+#meetings button:hover {
+  background: #f4f0e6;
+}
+
+main { padding: 8px 28px 48px; }
+
+.meeting-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f4f0e6;
+  padding: 12px 0 8px;
+}
+
+.meeting-head h2 { margin: 0 0 4px; font-size: 1.25rem; }
+
+.meeting-head p { margin: 0 0 10px; color: #5c564c; }
+
+audio { width: 100%; }
+
+.prompts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+
+.prompts button,
+#prompt-fallback {
+  border: 1px solid #d5cdbc;
+  background: #fffdf8;
+  color: inherit;
+  font: inherit;
+  border-radius: 8px;
+}
+
+.prompts button {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.prompts button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#prompt-status { margin: 0 0 8px; }
+
+#prompt-fallback {
+  display: block;
+  width: 100%;
+  min-height: 8rem;
+  margin: 0 0 8px;
+  padding: 8px;
+}
+
+#prompt-fallback[hidden] { display: none; }
+
+.tabs { display: flex; gap: 8px; margin: 8px 0 16px; }
+
+.tabs button {
+  border: 1px solid #d5cdbc;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: #1c1915;
+  color: #f4f0e6;
+  border-color: #1c1915;
+}
+
+.turn { margin: 0 0 18px; }
+
+.turn h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.phrase {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.phrase time {
+  display: inline-block;
+  min-width: 4.5rem;
+  margin-right: 8px;
+  color: #5c564c;
+  font-variant-numeric: tabular-nums;
+}
+
+.phrase.active { background: #efe2b8; }
+
+.phrase:hover { background: #ebe4d4; }
+
+.phrase.active:hover { background: #efe2b8; }
+
+#text {
+  white-space: pre-wrap;
+  font-family: "Liberation Mono", "DejaVu Sans Mono", monospace;
+  font-size: 0.92rem;
+}
+
+.minutes h1,
+.minutes h2,
+.minutes h3 { margin: 1.1rem 0 0.4rem; }
+
+.minutes p { margin: 0.4rem 0; }
+
+.minutes ul,
+.minutes ol { margin: 0.4rem 0 0.8rem; padding-left: 1.3rem; }
+
+.note { color: #5c564c; }
+
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; }
+  .list-pane { border-right: 0; border-bottom: 1px solid #d5cdbc; }
+}

@@ -4,7 +4,10 @@ from __future__ import annotations
 import signal
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+
+from graba_reunion.timing import mark_duration, mark_started, probe_duration_seconds
 
 
 def build_ffmpeg_cmd(
@@ -58,6 +61,7 @@ def record_until_signal(
     signal.signal(signal.SIGTERM, on_signal)
 
     command = build_ffmpeg_cmd(mic, mon, mp3, backend=backend)
+    mark_started(mp3, datetime.now())
     print(f"Grabando en {mp3}")
     print("Para detener y transcribir: Ctrl+C o SIGTERM a este proceso.")
     print(f"Backend: {backend}")
@@ -78,6 +82,10 @@ def record_until_signal(
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+
+    duration = probe_duration_seconds(mp3)
+    if duration is not None:
+        mark_duration(mp3, duration)
 
     if return_code != 0:
         print(f"ffmpeg terminó con código {return_code}.", file=sys.stderr)

@@ -7,14 +7,26 @@ from pathlib import Path
 
 from graba_reunion.commands.check_deps import cmd_check_deps
 from graba_reunion.commands.list_show import cmd_list, cmd_show
+from graba_reunion.commands.phrases_cmd import cmd_phrases
 from graba_reunion.commands.record import run_record_flow
 from graba_reunion.commands.search_cmd import cmd_search
 from graba_reunion.commands.setup_cmd import cmd_setup
 from graba_reunion.commands.voices_cmd import cmd_voices
 from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
 from graba_reunion.paths import default_output_dir
+from graba_reunion.viewer import cmd_view
 
-SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps", "voices", "search"}
+SUBCOMMANDS = {
+    "list",
+    "show",
+    "record",
+    "setup",
+    "check-deps",
+    "voices",
+    "search",
+    "phrases",
+    "view",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +56,10 @@ ejemplos:
       Ver transcripción de la reunión más reciente.
   graba-reunion search "entrega del laboratorio"
       Buscar por tema. --word busca la frase literal. --participant filtra el hablante.
+  graba-reunion phrases reunion.mp3
+      Volver a transcribir un MP3 y guardar el JSON de frases.
+  graba-reunion view
+      Abrir el visor de conversaciones en el navegador.
 
 Las opciones de grabación/transcripción funcionan con o sin el subcomando record.""",
     )
@@ -123,6 +139,25 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
         help="Imprimir los resultados en JSON.",
     )
     search_parser.set_defaults(command="search")
+
+    phrases_parser = subparsers.add_parser(
+        "phrases",
+        help="Volver a transcribir un MP3 y guardar el JSON de frases.",
+    )
+    _add_output_args(phrases_parser)
+    phrases_parser.add_argument("mp3", type=Path, help="MP3 ya grabado.")
+    phrases_parser.set_defaults(command="phrases")
+
+    view_parser = subparsers.add_parser("view", help="Abrir el visor de conversaciones.")
+    _add_output_args(view_parser)
+    view_parser.add_argument("--id", default="", help="Reunión a abrir (nombre sin extensión).")
+    view_parser.add_argument(
+        "--t",
+        type=float,
+        default=None,
+        help="Segundo del MP3 donde empieza el audio.",
+    )
+    view_parser.set_defaults(command="view")
 
     record_parser = subparsers.add_parser("record", help="Grabar reunión.")
     _add_output_args(record_parser)
@@ -254,6 +289,10 @@ def main() -> int:
             participant=getattr(args, "participant", ""),
             as_json=bool(getattr(args, "json", False)),
         )
+    if command == "phrases":
+        return cmd_phrases(output_dir, args.mp3)
+    if command == "view":
+        return cmd_view(output_dir, meeting_id=args.id, start=args.t)
 
     enrich_only = getattr(args, "enrich_only", None)
     use_groq = bool(getattr(args, "groq", False))

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from graba_reunion.voices import (
     SpeakerTrack,
     VoiceBank,
@@ -85,3 +87,26 @@ def test_transcript_uses_profile_name() -> None:
         bank,
     )
     assert text == "[Ana]: hola\n[SPEAKER_01]: chau\n"
+
+
+def test_transcript_uses_recording_clock(tmp_path: Path) -> None:
+    from datetime import datetime
+
+    from graba_reunion.timing import Pause, RecordingTiming, _write
+
+    audio = tmp_path / "reunion_2026-09-29_13-00-00.mp3"
+    audio.write_bytes(b"x")
+    _write(
+        audio,
+        RecordingTiming(
+            started_at=datetime(2026, 9, 29, 13, 0, 0),
+            duration_seconds=120,
+            pauses=(Pause(at_seconds=60, paused_seconds=120),),
+        ),
+    )
+    text = transcript_from_whisperx(
+        {"segments": [{"speaker": "SPEAKER_00", "text": "hola", "start": 90}]},
+        VoiceBank(threshold=0.7, profiles=()),
+        audio=audio,
+    )
+    assert text == "[13:03:30] [SPEAKER_00]: hola\n"

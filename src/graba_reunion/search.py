@@ -12,8 +12,11 @@ from graba_reunion.voices import cosine_similarity
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 CHUNK_CHARS = 500
 RESULT_LIMIT = 20
-TOPIC_MIN_SCORE = 0.25
+TOPIC_MIN_SCORE = 0.40
+TOPIC_SCORE_GAP = 0.15
+MIN_TOPIC_CHARS = 20
 SPEAKER_LINE = re.compile(r"^\[([^\]]+)\]:\s*(.*)$")
+TIMED_SPEAKER_LINE = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\]\s+\[([^\]]+)\]:\s*(.*)$")
 
 _model: object | None = None
 
@@ -23,6 +26,7 @@ class Chunk:
     path: str
     speaker: str
     text: str
+    spoken_at: str = ""
     embedding: tuple[float, ...] | None = None
 
 
@@ -32,38 +36,56 @@ class SearchHit:
     speaker: str
     snippet: str
     score: float | None
+    spoken_at: str = ""
 
 
 def parse_chunks(path: Path, text: str) -> list[Chunk]:
-    turns: list[tuple[str, str]] = []
+    turns: list[tuple[str, str, str]] = []
     speaker = ""
+    spoken_at = ""
     parts: list[str] = []
     for line in text.splitlines():
-        match = SPEAKER_LINE.match(line.strip())
-        if match:
+        stripped = line.strip()
+        timed = TIMED_SPEAKER_LINE.match(stripped)
+        match = SPEAKER_LINE.match(stripped)
+        if timed or match:
             if parts:
-                turns.append((speaker, " ".join(parts)))
-            speaker = match.group(1).strip()
-            spoken = match.group(2).strip()
+                turns.append((speaker, " ".join(parts), spoken_at))
+            if timed:
+                spoken_at = timed.group(1)
+                speaker = timed.group(2).strip()
+                spoken = timed.group(3).strip()
+            else:
+                spoken_at = ""
+                speaker = match.group(1).strip() if match else ""
+                spoken = match.group(2).strip() if match else ""
             parts = [spoken] if spoken else []
             continue
-        spoken = line.strip()
+        spoken = stripped
         if spoken:
             parts.append(spoken)
     if parts:
-        turns.append((speaker, " ".join(parts)))
+        turns.append((speaker, " ".join(parts), spoken_at))
 
     chunks: list[Chunk] = []
     buffer_speaker = ""
     buffer_text = ""
-    for turn_speaker, turn_text in turns:
+    buffer_at = ""
+    for turn_speaker, turn_text, turn_at in turns:
         if buffer_text and (turn_speaker != buffer_speaker or len(buffer_text) >= CHUNK_CHARS):
-            chunks.append(Chunk(path=str(path), speaker=buffer_speaker, text=buffer_text))
+            chunks.append(
+                Chunk(path=str(path), speaker=buffer_speaker, text=buffer_text, spoken_at=buffer_at)
+            )
             buffer_text = ""
+            buffer_at = ""
+        if not buffer_text:
+            buffer_at = turn_at
         buffer_speaker = turn_speaker
         buffer_text = f"{buffer_text} {turn_text}".strip()
     if buffer_text:
-        chunks.append(Chunk(path=str(path), speaker=buffer_speaker, text=buffer_text))
+        chunks.append(
+            Chunk(path=str(path), speaker=buffer_speaker, text=buffer_text, spoken_at=buffer_at)
+        )
     return chunks
 
 
@@ -112,6 +134,7 @@ def hits_as_json(hits: list[SearchHit]) -> str:
         {
             "path": hit.path,
             "speaker": hit.speaker,
+            "spoken_at": hit.spoken_at,
             "snippet": hit.snippet,
             "score": hit.score,
         }
@@ -139,6 +162,7 @@ def _literal_hits(files: list[Path], query: str, *, participant: str) -> list[Se
                     speaker=chunk.speaker,
                     snippet=_snippet(chunk.text, needle),
                     score=None,
+                    spoken_at=chunk.spoken_at,
                 )
             )
     return hits
@@ -153,7 +177,11 @@ def _topic_hits(
 ) -> list[SearchHit]:
     who = participant.casefold().strip()
     selected = [chunk for chunk in chunks if not who or who in chunk.speaker.casefold()]
-    vectors = [chunk for chunk in selected if chunk.embedding]
+    vectors = [
+        chunk
+        for chunk in selected
+        if chunk.embedding and len(chunk.text.strip()) >= MIN_TOPIC_CHARS
+    ]
     if not vectors or embed_texts is None:
         return []
     query_vector = embed_texts([query])[0]
@@ -168,10 +196,15 @@ def _topic_hits(
                 speaker=chunk.speaker,
                 snippet=_snippet(chunk.text, ""),
                 score=round(score, 3),
+                spoken_at=chunk.spoken_at,
             )
         )
     ranked.sort(key=lambda hit: hit.score or 0.0, reverse=True)
-    return ranked
+    if not ranked:
+        return ranked
+    best = ranked[0].score or 0.0
+    floor = max(TOPIC_MIN_SCORE, best - TOPIC_SCORE_GAP)
+    return [hit for hit in ranked if (hit.score or 0.0) >= floor]
 
 
 def _chunks_with_embeddings(
@@ -198,7 +231,10 @@ def _chunks_with_embeddings(
         order.append(key)
         rebuilt[key] = {
             "mtime_ns": signature,
-            "chunks": [{"speaker": chunk.speaker, "text": chunk.text} for chunk in parsed],
+            "chunks": [
+                {"speaker": chunk.speaker, "text": chunk.text, "spoken_at": chunk.spoken_at}
+                for chunk in parsed
+            ],
         }
     if pending and embed_texts is not None:
         vectors = embed_texts([chunk.text for chunk in pending])
@@ -214,6 +250,7 @@ def _chunks_with_embeddings(
                         path=key,
                         speaker=source.speaker,
                         text=source.text,
+                        spoken_at=source.spoken_at,
                         embedding=tuple(float(value) for value in vector),
                     )
                 )
@@ -238,6 +275,7 @@ def _chunks_from_cache(key: str, payload: dict) -> list[Chunk]:
                 path=key,
                 speaker=str(item.get("speaker") or ""),
                 text=str(item.get("text") or ""),
+                spoken_at=str(item.get("spoken_at") or ""),
                 embedding=tuple(float(value) for value in vector) if vector else None,
             )
         )

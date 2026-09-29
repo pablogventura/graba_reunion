@@ -7,6 +7,7 @@ from pathlib import Path
 from graba_reunion.config import load_settings, settings_with_overrides
 from graba_reunion.enrichment import enrich_and_store
 from graba_reunion.paths import SessionPaths, session_paths
+from graba_reunion.phrases import phrases_path
 from graba_reunion.recording import record_until_signal
 from graba_reunion.setup_wizard import ensure_configured
 from graba_reunion.transcription.faster_whisper import (
@@ -71,6 +72,9 @@ def transcribe_and_write_txt(
         print("Listo:")
         print(mp3)
         print(txt)
+        phrase_file = phrases_path(mp3)
+        if phrase_file.is_file():
+            print(phrase_file)
         if skip_groq:
             return 0
         return enrich_and_store(

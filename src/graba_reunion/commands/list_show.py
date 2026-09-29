@@ -15,7 +15,13 @@ def cmd_list(output_dir: Path) -> int:
         return 0
     print(f"{'#':>3}  {'grabada':<20}  título")
     for meeting in meetings:
-        print(f"{meeting.rank:>3}  {meeting.recorded_label:<20}  {meeting.title}")
+        extra = ""
+        if meeting.duration_label:
+            extra = meeting.duration_label
+            if meeting.ended_label:
+                extra = f"{extra} hasta {meeting.ended_label}"
+            extra = f"{extra}  "
+        print(f"{meeting.rank:>3}  {meeting.recorded_label:<20}  {extra}{meeting.title}")
     print(f"\nDirectorio: {output_dir}")
     return 0
 
@@ -39,6 +45,10 @@ def cmd_show(output_dir: Path, rank: int, *, show_transcript: bool, show_all: bo
 
     print(f"#{meeting.rank}  {meeting.title}")
     print(f"Grabada: {meeting.recorded_label}")
+    if meeting.duration_label:
+        print(f"Duración: {meeting.duration_label}")
+    if meeting.ended_label:
+        print(f"Hasta: {meeting.ended_label}")
     print(f"Archivo: {meeting.path}")
     mp3 = meeting.path.with_suffix(".mp3")
     if mp3.is_file():

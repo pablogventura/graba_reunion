@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from graba_reunion.config import data_dir
+from graba_reunion.timing import (
+    RecordingTiming,
+    format_clock,
+    load_recording_timing,
+    wall_clock,
+)
 
 MATCH_SIMILARITY = 0.70
 CLIP_SECONDS = 12.0
@@ -239,7 +245,7 @@ def save_voice_bank(bank: VoiceBank, path: Path | None = None) -> Path:
     return bank_path
 
 
-def transcript_from_whisperx(payload: dict, bank: VoiceBank) -> str:
+def speaker_names(payload: dict, bank: VoiceBank) -> dict[str, str]:
     embeddings = payload.get("speaker_embeddings") or {}
     mapping: dict[str, str] = {}
     for label, vector in embeddings.items():
@@ -248,26 +254,47 @@ def transcript_from_whisperx(payload: dict, bank: VoiceBank) -> str:
         name = bank.match(vector)
         if name:
             mapping[str(label)] = name
+    return mapping
+
+
+def transcript_from_whisperx(payload: dict, bank: VoiceBank, *, audio: Path | None = None) -> str:
+    mapping = speaker_names(payload, bank)
+    timing = load_recording_timing(audio)
     lines: list[str] = []
     for segment in payload.get("segments") or []:
         text = str(segment.get("text") or "").strip()
         if not text:
             continue
+        clock = _segment_clock(segment.get("start"), timing)
+        prefix = f"[{clock}] " if clock else ""
         speaker = segment.get("speaker")
         if speaker:
             shown = mapping.get(str(speaker), str(speaker))
-            lines.append(f"[{shown}]: {text}")
+            lines.append(f"{prefix}[{shown}]: {text}")
         else:
-            lines.append(text)
+            lines.append(f"{prefix}{text}")
     if not lines:
         return ""
     return "\n".join(lines) + "\n"
 
 
+def _segment_clock(start: object, timing: RecordingTiming | None) -> str:
+    if timing is None or not isinstance(start, (int, float)):
+        return ""
+    return format_clock(wall_clock(timing.started_at, float(start), timing.pauses))
+
+
 def write_named_transcript(json_path: Path, txt_path: Path, bank: VoiceBank | None = None) -> None:
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     active = bank if bank is not None else load_voice_bank()
-    txt_path.write_text(transcript_from_whisperx(payload, active), encoding="utf-8")
+    audio = txt_path.with_suffix(".mp3")
+    txt_path.write_text(
+        transcript_from_whisperx(payload, active, audio=audio),
+        encoding="utf-8",
+    )
+    from graba_reunion.phrases import write_phrases
+
+    write_phrases(payload, active, audio)
 
 
 def _average_similarity(left: list[SpeakerTrack], right: list[SpeakerTrack]) -> float:

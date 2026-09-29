@@ -28,6 +28,8 @@ graba-reunion list
 graba-reunion show 1
 graba-reunion voices
 graba-reunion search "entrega del laboratorio"
+graba-reunion phrases archivo.mp3
+graba-reunion view
 graba-reunion-mic   # indicador: autograba cuando otra app usa el mic
 ```
 
@@ -45,9 +47,11 @@ src/graba_reunion/
   enrichment.py       # minuta Groq en markdown
   groq_summary.py     # llamada Groq
   search.py           # búsqueda por tema, palabra o participante
+  phrases.py          # JSON de frases (segundos del MP3 y hora)
+  viewer/             # visor local: servidor y página estática
   setup_wizard.py     # wizard setup
   deps_installer.py   # reparar torch CUDA
-  commands/           # list, show, setup, check-deps, record, voices, search
+  commands/           # list, show, setup, check-deps, record, voices, search, phrases
   transcription/      # whisperx, faster_whisper, srt
   voices.py           # perfiles de voz y renombre en el txt
   voice_enroll.py     # diarización de MP3 ya grabados y clips

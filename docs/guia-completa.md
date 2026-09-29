@@ -357,6 +357,19 @@ graba-reunion search --participant Pablo
 
 `--word` es coincidencia literal, sin distinguir mayúsculas. `--participant` se puede combinar con tema o palabra. Sin texto, lista intervenciones de esa persona. `--json` imprime los resultados para el indicador.
 
+### `view` y `phrases`
+
+`graba-reunion view` abre el visor en el navegador. Escucha solo en `127.0.0.1`. La página lista las reuniones, reproduce el MP3 y muestra la conversación. Un clic en una frase salta a ese segundo. Texto y minuta se leen en la misma página. Tres botones arman un texto (minuta con acciones, prompt para Cursor, o voces sin nombre), lo copian y abren ChatGPT en otra pestaña para pegarlo.
+
+Cada transcripción con diarización deja `{nombre}.phrases.json` al lado del MP3. Las reuniones anteriores no se regeneran solas.
+
+```bash
+graba-reunion view
+graba-reunion phrases archivo.mp3
+```
+
+`phrases` vuelve a transcribir ese MP3 y escribe el JSON. No recorre la carpeta.
+
 ---
 
 ## 8. Referencia de opciones
@@ -519,9 +532,9 @@ No hay enumerator automático: hay que poner nombres que ffmpeg entienda con `-f
 
 - Modelo / idioma / device / compute / batch desde config o CLI
 - Requiere `HF_TOKEN` y licencias pyannote aceptadas
-- Salida principal: `.txt` con hablantes
+- Salida principal: `.txt` con hablantes, y `{nombre}.phrases.json` con cada frase (quién, texto, segundos del MP3 y hora)
 - Si hay perfiles de voz (`graba-reunion voices`), el hablante que coincide sale con su nombre. El resto sigue como `SPEAKER_00`
-- Artefactos extra (`.srt`, `.json`, ...) se limpian después
+- Artefactos extra (`.srt`, `.json`, ...) se limpian después. El `.phrases.json` queda
 
 Workaround interno: WhisperX corre con cwd en el temp del sistema para evitar un falso positivo de seguridad de NLTK cuando el proceso parte desde `$HOME`.
 
@@ -714,11 +727,11 @@ PipeWire ve el proceso que abre el micrófono, no el nombre del sitio.
 | Micrófono tachado | No está grabando (aunque otra app use el micrófono, o haya una transcripción) |
 | Micrófono activo | Hay una grabación en curso, también si está en pausa |
 
-El menú lista la app y el dispositivo (por ejemplo `Discord - HyperX...`), y debajo los nombres de las transcripciones (`.txt`) de las últimas 24 horas. Un clic en un nombre abre ese archivo con el editor de texto predeterminado.
+El menú lista la app y el dispositivo (por ejemplo `Discord - HyperX...`), y debajo los nombres de las transcripciones (`.txt`) de las últimas 24 horas. Un clic en un nombre abre el visor en esa reunión. **Ver conversaciones** abre el listado.
 
 Con el micrófono libre, **Grabar** empieza enseguida, sin esperar los 3 segundos. Si nadie más usa el micrófono, la toma se corta sola tras 10 minutos de silencio en el audio. Si después otra app abre el micrófono, al colgar vuelve la regla de los 10 segundos. Durante la grabación aparecen **Pausar**, **Detener** y **Cancelar**. Pausar manda SIGSTOP al proceso y a ffmpeg: el MP3 sigue siendo el mismo y el silencio no corta la toma. Si la llamada termina mientras está en pausa, avisa una vez y no cierra solo. Reanudar manda SIGCONT y el temporizador de silencio vuelve a cero. Detener (también **Salir**) reanuda si hacía falta y manda SIGTERM; después vale la regla de los 60 segundos. Cancelar abre un cuadro de confirmación: si aceptás, corta, borra el MP3 y no transcribe.
 
-**Buscar** abre un diálogo (tema, palabra y participante opcional). La búsqueda corre en segundo plano con `graba-reunion search --json`. Un clic en un resultado abre el `.txt`.
+**Buscar** abre un diálogo (tema, palabra y participante opcional). La búsqueda corre en segundo plano con `graba-reunion search --json`. Un clic en un resultado abre el visor. Si esa reunión ya tiene `.phrases.json`, el audio arranca en la frase.
 
 ### Cuándo graba
 
@@ -746,7 +759,7 @@ En cuanto el CLI imprime la ruta del MP3, el indicador deja una marca en `~/.loc
 - menos de 60 segundos: borra el MP3 y avisa
 - 60 segundos o más (o si no se puede medir la duración): lanza `--transcribe-only`
 
-La marca se borra cuando existe el `.txt`. Si la transcripción falla, queda y se reintenta la próxima vez. El resultado sale como notificación de GNOME (libnotify), no por la consola. Un clic en el aviso de transcripción lista abre el `.txt` con el editor predeterminado. El detalle sigue en el log.
+La marca se borra cuando existe el `.txt`. Si la transcripción falla, queda y se reintenta la próxima vez. El resultado sale como notificación de GNOME (libnotify), no por la consola. Un clic en el aviso de transcripción lista abre el visor en esa reunión. El detalle sigue en el log.
 
 ### Arranque al iniciar sesión
 

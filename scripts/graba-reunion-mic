@@ -1,0 +1,5 @@
+#!/bin/sh
+# PyGObject viene del Python del sistema. La grabación la hace el graba-reunion instalado.
+ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 -c 'from graba_reunion.mic_indicator import main; main()'

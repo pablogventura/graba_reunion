@@ -1,7 +1,6 @@
-"""Rutas de sesión y base de datos."""
+"""Rutas de sesión."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -35,15 +34,3 @@ def session_paths(output_dir: Path, *, prefix: str | None = None) -> SessionPath
         srt=directory / f"{base}.srt",
         txt=directory / f"{base}.txt",
     )
-
-
-def resolve_db_path(output_dir: Path, explicit: Path | None) -> Path:
-    if explicit is not None:
-        return explicit.expanduser().resolve()
-    settings = load_settings()
-    if settings.graba_db:
-        return Path(settings.graba_db).expanduser().resolve()
-    env_db = os.environ.get("GRABA_DB", "").strip()
-    if env_db:
-        return Path(env_db).expanduser().resolve()
-    return output_dir.resolve() / "reunions.db"

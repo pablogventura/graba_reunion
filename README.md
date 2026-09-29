@@ -1,6 +1,6 @@
 # graba-reunion
 
-Graba reuniones (micrófono + audio del monitor), transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)) y, si querés (`--groq`), genera título + minuta con [Groq](https://groq.com/) en SQLite.
+Graba reuniones (micrófono + audio del monitor), transcribe con diarización ([WhisperX](https://github.com/m-bain/whisperX)) y, si querés (`--groq`), genera título + minuta con [Groq](https://groq.com/).
 
 **Documentación completa:** [docs/guia-completa.md](docs/guia-completa.md)
 
@@ -18,7 +18,7 @@ graba-reunion check-deps
 graba-reunion
 # Ctrl+C para detener y transcribir
 
-# Con minuta Groq + SQLite
+# Con minuta Groq
 graba-reunion --groq
 ```
 
@@ -31,7 +31,8 @@ Config: `~/.config/graba-reunion/.env`
 |------|---------|----------|
 | Grabar mic + monitor (ffmpeg) | sí | `--skip-transcribe` solo audio |
 | Transcribir con speakers (WhisperX) | sí | `--no-diarize` (faster-whisper) |
-| Minuta + SQLite (Groq) | no | `--groq` / `--enrich-only` |
+| Nombres en vez de `SPEAKER_00` | no | `graba-reunion voices` |
+| Minuta (Groq) | no | `--groq` / `--enrich-only` |
 
 ## Requisitos
 
@@ -47,16 +48,20 @@ Config: `~/.config/graba-reunion/.env`
 ```bash
 graba-reunion                      # grabar + transcribir
 graba-reunion -d .                 # grabar en el CWD
-graba-reunion --groq               # + minuta y DB
+graba-reunion --groq               # + minuta
 graba-reunion --language en --model medium --device cpu
 graba-reunion --transcribe-only archivo.mp3
 graba-reunion --enrich-only archivo.txt
 graba-reunion list
 graba-reunion show 1               # 1 = más reciente
 graba-reunion show 1 --transcript
+graba-reunion search "entrega del laboratorio"
+graba-reunion search --word "acta"
+graba-reunion search --participant Pablo "presupuesto"
 graba-reunion setup
 graba-reunion setup --install-deps -y
 graba-reunion check-deps
+graba-reunion-mic              # icono: graba solo cuando otra app usa el mic
 ```
 
 ## Configuración (resumen)
@@ -75,7 +80,15 @@ Variables clave:
 - `GRABA_MIC` / `GRABA_MON` / `GRABA_AUDIO_BACKEND`
 - `HF_TOKEN`, `GROQ_API_KEY` (opcional)
 - `GRABA_WHISPERX_MODEL`, `LANGUAGE`, `DEVICE` (default `cpu`), `COMPUTE_TYPE`
-- `GRABA_OUTPUT_DIR`, `GRABA_SESSION_PREFIX`, `GRABA_DB`
+- `GRABA_OUTPUT_DIR`, `GRABA_SESSION_PREFIX`
+
+## Indicador automático
+
+`graba-reunion-mic` graba la reunión cuando otra app abre el micrófono (Discord, Meet, Teams, etc.). El icono se ve en uso solo mientras está grabando; si no, queda como micrófono libre aunque otra app lo tenga abierto. Espera 3 segundos para arrancar y 10 para cortar al colgar. Si la toma dura menos de un minuto, borra el audio. Si dura más, transcribe sin Groq. El menú del icono lista las transcripciones de las últimas 24 horas; un clic en el aviso o en el nombre abre el `.txt` con el editor predeterminado.
+
+Con el micrófono libre, **Grabar** arranca una toma a mano. Si nadie más usa el micrófono, se corta sola tras 10 minutos de silencio en el audio. Si otra app lo abre y lo suelta, vuelve el corte a los 10 segundos. Mientras graba: **Pausar** congela el audio (el silencio no corta la toma), **Detener** aplica la regla de duración y **Cancelar** abre un cuadro para confirmar antes de borrar el MP3. **Salir** equivale a Detener. **Buscar** abre un diálogo de tema, palabra o participante.
+
+Arranca con la sesión gráfica (`~/.config/autostart/graba-reunion-mic.desktop`). Si quedó un MP3 sin transcribir (corte de luz, cierre brusco), al volver lo transcribe y avisa con una notificación de GNOME. Log en `~/.local/share/graba-reunion/mic-indicator.log`.
 
 Detalle de cada variable, flujos y troubleshooting: **[guía completa](docs/guia-completa.md)**.
 

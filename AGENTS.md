@@ -9,7 +9,7 @@ Guía mínima para agentes que trabajan en este repositorio.
 - Audio: ffmpeg + PulseAudio (ALSA opcional)
 - Transcripción: WhisperX (default) o faster-whisper (`--no-diarize`)
 - Minuta (opcional, `--groq`): Groq API (`llama-3.3-70b-versatile`)
-- Persistencia: SQLite (`reunions.db`)
+- Persistencia: archivos `{prefijo}_*.txt` y `{prefijo}_*_minuta.md`
 - Config: `$XDG_CONFIG_HOME/graba-reunion/.env` (override `GRABA_CONFIG`)
 - Salida default: `$XDG_DATA_HOME/graba-reunion/recordings`
 
@@ -26,6 +26,9 @@ graba-reunion setup
 graba-reunion check-deps
 graba-reunion list
 graba-reunion show 1
+graba-reunion voices
+graba-reunion search "entrega del laboratorio"
+graba-reunion-mic   # indicador: autograba cuando otra app usa el mic
 ```
 
 Detalle de setup, tokens HF y variables: ver [README.md](README.md) y la [guía completa](docs/guia-completa.md).
@@ -36,16 +39,21 @@ Detalle de setup, tokens HF y variables: ver [README.md](README.md) y la [guía 
 src/graba_reunion/
   cli.py              # router argparse
   config.py           # Settings + .env
-  paths.py            # rutas sesión y DB
+  paths.py            # rutas de sesión
+  meetings.py         # listado desde los .txt
   recording.py        # ffmpeg
-  enrichment.py       # Groq + SQLite
+  enrichment.py       # minuta Groq en markdown
   groq_summary.py     # llamada Groq
-  db.py               # SQLite
+  search.py           # búsqueda por tema, palabra o participante
   setup_wizard.py     # wizard setup
   deps_installer.py   # reparar torch CUDA
-  commands/           # list, show, setup, check-deps, record
+  commands/           # list, show, setup, check-deps, record, voices, search
   transcription/      # whisperx, faster_whisper, srt
-scripts/              # setup.sh, pipx-install.sh
+  voices.py           # perfiles de voz y renombre en el txt
+  voice_enroll.py     # diarización de MP3 ya grabados y clips
+  mic_watch.py        # detección PipeWire y antirrebote
+  mic_indicator.py    # icono GNOME y autograbación
+scripts/              # setup.sh, pipx-install.sh, graba-reunion-mic
 tests/                # pytest + fixtures
 ```
 

@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from graba_reunion.config import Settings, load_settings, resolve_whisperx_bin
+from graba_reunion.voices import write_named_transcript
 
 WHISPERX_SIDE_EXTENSIONS = (".srt", ".json", ".vtt", ".tsv")
 
@@ -78,9 +79,14 @@ def transcribe_with_diarization(
             "--output_dir",
             str(output_dir.resolve()),
             "--output_format",
-            "txt",
+            "json",
+            "--speaker_embeddings",
         ],
         check=True,
         cwd=whisperx_subprocess_cwd(),
         env={**os.environ, "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "true"},
     )
+    json_path = output_dir.resolve() / f"{mp3.stem}.json"
+    if not json_path.is_file():
+        raise FileNotFoundError(f"WhisperX no escribió {json_path.name}")
+    write_named_transcript(json_path, output_dir.resolve() / f"{mp3.stem}.txt")

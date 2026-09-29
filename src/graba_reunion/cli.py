@@ -8,18 +8,20 @@ from pathlib import Path
 from graba_reunion.commands.check_deps import cmd_check_deps
 from graba_reunion.commands.list_show import cmd_list, cmd_show
 from graba_reunion.commands.record import run_record_flow
+from graba_reunion.commands.search_cmd import cmd_search
 from graba_reunion.commands.setup_cmd import cmd_setup
+from graba_reunion.commands.voices_cmd import cmd_voices
 from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
-from graba_reunion.paths import default_output_dir, resolve_db_path
+from graba_reunion.paths import default_output_dir
 
-SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps"}
+SUBCOMMANDS = {"list", "show", "record", "setup", "check-deps", "voices", "search"}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Graba reunión (mic + monitor) y transcribe. "
-            "Con --groq genera minuta y guarda en SQLite."
+            "Con --groq genera una minuta en markdown."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -27,7 +29,7 @@ ejemplos:
   graba-reunion
       Grabar y transcribir (sin minuta Groq).
   graba-reunion --groq
-      Grabar, transcribir, minuta Groq y SQLite.
+      Grabar, transcribir y minuta Groq.
   graba-reunion -d .
       Grabar en el directorio actual (en vez del data dir).
   graba-reunion --transcribe-only reunion.mp3
@@ -40,6 +42,8 @@ ejemplos:
       Listar reuniones (1 = más reciente).
   graba-reunion show 1 --transcript
       Ver transcripción de la reunión más reciente.
+  graba-reunion search "entrega del laboratorio"
+      Buscar por tema. --word busca la frase literal. --participant filtra el hablante.
 
 Las opciones de grabación/transcripción funcionan con o sin el subcomando record.""",
     )
@@ -53,22 +57,15 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
             "$XDG_DATA_HOME/graba-reunion/recordings)."
         ),
     )
-    parser.add_argument(
-        "--db",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help="Ruta SQLite (por defecto <output-dir>/reunions.db o GRABA_DB).",
-    )
 
     subparsers = parser.add_subparsers(dest="command")
 
     list_parser = subparsers.add_parser("list", help="Listar reuniones (1 = más reciente).")
-    _add_db_args(list_parser)
+    _add_output_args(list_parser)
     list_parser.set_defaults(command="list")
 
     show_parser = subparsers.add_parser("show", help="Mostrar reunión por número.")
-    _add_db_args(show_parser)
+    _add_output_args(show_parser)
     show_parser.add_argument("rank", type=int, metavar="N")
     show_parser.add_argument("--transcript", action="store_true")
     show_parser.add_argument("--all", action="store_true")
@@ -90,8 +87,45 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
     check_parser = subparsers.add_parser("check-deps", help="Verificar dependencias.")
     check_parser.set_defaults(command="check-deps")
 
+    voices_parser = subparsers.add_parser(
+        "voices",
+        help="Nombrar voces con las grabaciones existentes.",
+    )
+    _add_output_args(voices_parser)
+    voices_parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="Solo extraer clips y escribir nombres.txt.",
+    )
+    voices_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Guardar los nombres de nombres.txt como perfiles.",
+    )
+    voices_parser.set_defaults(command="voices")
+
+    search_parser = subparsers.add_parser("search", help="Buscar en las transcripciones.")
+    _add_output_args(search_parser)
+    search_parser.add_argument("query", nargs="?", default="", help="Tema o palabras.")
+    search_parser.add_argument(
+        "--word",
+        action="store_true",
+        help="Coincidencia literal, sin distinguir mayúsculas.",
+    )
+    search_parser.add_argument(
+        "--participant",
+        default="",
+        help="Limitar a un hablante. Sin consulta, lista sus intervenciones.",
+    )
+    search_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Imprimir los resultados en JSON.",
+    )
+    search_parser.set_defaults(command="search")
+
     record_parser = subparsers.add_parser("record", help="Grabar reunión.")
-    _add_db_args(record_parser)
+    _add_output_args(record_parser)
     _add_record_args(record_parser)
     record_parser.set_defaults(command="record")
 
@@ -101,7 +135,7 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
     return parser.parse_args()
 
 
-def _add_db_args(parser: argparse.ArgumentParser) -> None:
+def _add_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-d",
         "--output-dir",
@@ -112,7 +146,6 @@ def _add_db_args(parser: argparse.ArgumentParser) -> None:
             "$XDG_DATA_HOME/graba-reunion/recordings)."
         ),
     )
-    parser.add_argument("--db", type=Path, default=None, metavar="PATH")
 
 
 def _add_record_args(parser: argparse.ArgumentParser) -> None:
@@ -169,7 +202,7 @@ def _add_record_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--groq",
         action="store_true",
-        help="Generar título y minuta con Groq y guardar en SQLite.",
+        help="Generar título y minuta con Groq.",
     )
     parser.add_argument(
         "--skip-groq",
@@ -193,13 +226,12 @@ def main() -> int:
     args = parse_args()
     command = getattr(args, "command", None)
     output_dir = args.output_dir if args.output_dir is not None else default_output_dir()
-    db_path = resolve_db_path(output_dir, args.db)
 
     if command == "list":
-        return cmd_list(db_path)
+        return cmd_list(output_dir)
     if command == "show":
         return cmd_show(
-            db_path,
+            output_dir,
             args.rank,
             show_transcript=args.transcript,
             show_all=args.all,
@@ -208,6 +240,20 @@ def main() -> int:
         return cmd_setup(install_deps=args.install_deps, yes=args.y)
     if command == "check-deps":
         return cmd_check_deps()
+    if command == "voices":
+        return cmd_voices(
+            output_dir,
+            prepare_only=bool(getattr(args, "prepare", False)),
+            apply_only=bool(getattr(args, "apply", False)),
+        )
+    if command == "search":
+        return cmd_search(
+            output_dir,
+            getattr(args, "query", ""),
+            word=bool(getattr(args, "word", False)),
+            participant=getattr(args, "participant", ""),
+            as_json=bool(getattr(args, "json", False)),
+        )
 
     enrich_only = getattr(args, "enrich_only", None)
     use_groq = bool(getattr(args, "groq", False))
@@ -229,7 +275,6 @@ def main() -> int:
         skip_transcribe=getattr(args, "skip_transcribe", False),
         skip_groq=not use_groq,
         min_mp3_bytes=getattr(args, "min_mp3_bytes", 256),
-        db_path=db_path,
         groq_model=getattr(args, "groq_model", DEFAULT_GROQ_MODEL),
     )
 

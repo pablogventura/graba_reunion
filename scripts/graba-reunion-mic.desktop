@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=graba-reunion mic
+Comment=Graba reuniones cuando otra app usa el micrófono
+Exec=graba-reunion-mic
+X-GNOME-Autostart-enabled=true
+Terminal=false
+Categories=Audio;Utility;

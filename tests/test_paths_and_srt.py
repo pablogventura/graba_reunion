@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from graba_reunion import config
-from graba_reunion.paths import default_output_dir, resolve_db_path, session_paths
+from graba_reunion.paths import default_output_dir, session_paths
 from graba_reunion.recording import build_ffmpeg_cmd
 from graba_reunion.transcription.srt import srt_to_plaintext
 
@@ -38,11 +38,6 @@ def test_default_output_dir_xdg(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "repo").mkdir(exist_ok=True)
     config.clear_settings_cache()
     assert default_output_dir() == (tmp_path / "data" / "graba-reunion" / "recordings").resolve()
-
-
-def test_resolve_db_path_explicit(tmp_path: Path) -> None:
-    explicit = tmp_path / "custom.db"
-    assert resolve_db_path(tmp_path, explicit) == explicit.resolve()
 
 
 def test_build_ffmpeg_cmd_pulse_and_alsa(tmp_path: Path) -> None:

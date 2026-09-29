@@ -25,7 +25,6 @@ def _settings(**overrides: object) -> Settings:
         whisperx_batch_size=16,
         faster_whisper_model="large-v3",
         faster_whisper_language="es",
-        graba_db="",
         output_dir="",
         session_prefix="reunion",
         audio_backend="pulse",
@@ -58,6 +57,12 @@ def test_transcribe_with_diarization_uses_neutral_cwd(
         captured["cmd"] = list(cmd)
         captured["cwd"] = cwd
         captured["env"] = env
+        out_dir = Path(cmd[cmd.index("--output_dir") + 1])
+        stem = Path(cmd[1]).stem
+        (out_dir / f"{stem}.json").write_text(
+            '{"segments": [{"speaker": "SPEAKER_00", "text": "hola"}]}',
+            encoding="utf-8",
+        )
         return None
 
     monkeypatch.setattr(
@@ -87,6 +92,9 @@ def test_transcribe_with_diarization_uses_neutral_cwd(
     assert cmd[cmd.index("--model") + 1] == "tiny"
     out_idx = cmd.index("--output_dir") + 1
     assert Path(cmd[out_idx]).is_absolute()
+    assert cmd[cmd.index("--output_format") + 1] == "json"
+    assert "--speaker_embeddings" in cmd
+    assert (tmp_path / "reunion.txt").read_text(encoding="utf-8") == "[SPEAKER_00]: hola\n"
     env = captured["env"]
     assert isinstance(env, dict)
     assert env["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] == "true"

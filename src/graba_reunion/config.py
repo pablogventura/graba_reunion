@@ -28,7 +28,6 @@ ENV_KEYS = (
     "GRABA_WHISPERX_BATCH_SIZE",
     "GRABA_MODEL",
     "GRABA_LANGUAGE",
-    "GRABA_DB",
     "GRABA_OUTPUT_DIR",
     "GRABA_SESSION_PREFIX",
     "GRABA_AUDIO_BACKEND",
@@ -165,7 +164,6 @@ class Settings:
     whisperx_batch_size: int
     faster_whisper_model: str
     faster_whisper_language: str
-    graba_db: str
     output_dir: str
     session_prefix: str
     audio_backend: str
@@ -232,7 +230,6 @@ class Settings:
             whisperx_batch_size=batch_size,
             faster_whisper_model=model,
             faster_whisper_language=language,
-            graba_db=get_env_value("GRABA_DB", file_values=file_values),
             output_dir=get_env_value("GRABA_OUTPUT_DIR", file_values=file_values),
             session_prefix=get_env_value("GRABA_SESSION_PREFIX", file_values=file_values)
             or DEFAULT_SESSION_PREFIX,

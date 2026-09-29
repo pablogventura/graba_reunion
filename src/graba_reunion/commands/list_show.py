@@ -1,66 +1,72 @@
-"""Comandos list y show."""
+"""Comandos list y show, a partir de los .txt."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from graba_reunion.db import get_meeting_by_rank, list_meetings
+from graba_reunion.config import load_settings
+from graba_reunion.meetings import list_meetings, meeting_by_rank
 
 
-def cmd_list(db_path: Path) -> int:
-    if not db_path.is_file():
-        print(f"No existe la base de datos: {db_path}", file=sys.stderr)
-        return 1
-
-    meetings = list_meetings(db_path)
+def cmd_list(output_dir: Path) -> int:
+    meetings = list_meetings(output_dir, prefix=_prefix())
     if not meetings:
-        print(f"No hay reuniones en {db_path}")
+        print(f"No hay reuniones en {output_dir}")
         return 0
-
     print(f"{'#':>3}  {'grabada':<20}  título")
     for meeting in meetings:
-        recorded = meeting.recorded_at.replace("T", " ")[:19]
-        print(f"{meeting.rank:>3}  {recorded:<20}  {meeting.title}")
-    print(f"\nBase: {db_path}")
+        print(f"{meeting.rank:>3}  {meeting.recorded_label:<20}  {meeting.title}")
+    print(f"\nDirectorio: {output_dir}")
     return 0
 
 
-def cmd_show(db_path: Path, rank: int, *, show_transcript: bool, show_all: bool) -> int:
+def cmd_show(output_dir: Path, rank: int, *, show_transcript: bool, show_all: bool) -> int:
     if rank < 1:
         print("El número debe ser >= 1 (1 = más reciente).", file=sys.stderr)
         return 1
-    if not db_path.is_file():
-        print(f"No existe la base de datos: {db_path}", file=sys.stderr)
-        return 1
-
-    meeting = get_meeting_by_rank(db_path, rank)
+    meetings = list_meetings(output_dir, prefix=_prefix())
+    meeting = meeting_by_rank(output_dir, rank, prefix=_prefix())
     if meeting is None:
-        total = len(list_meetings(db_path))
-        if total == 0:
-            print(f"No hay reuniones en {db_path}", file=sys.stderr)
+        if not meetings:
+            print(f"No hay reuniones en {output_dir}", file=sys.stderr)
         else:
             print(
-                f"No existe la reunión #{rank}. Hay {total} guardada(s); "
+                f"No existe la reunión #{rank}. Hay {len(meetings)} guardada(s); "
                 "usá graba-reunion list.",
                 file=sys.stderr,
             )
         return 1
 
-    recorded = meeting.recorded_at.replace("T", " ")[:19]
     print(f"#{meeting.rank}  {meeting.title}")
-    print(f"Grabada: {recorded}")
-    print(f"Archivo: {meeting.txt_path}")
-    print(f"Audio:   {meeting.mp3_path}")
+    print(f"Grabada: {meeting.recorded_label}")
+    print(f"Archivo: {meeting.path}")
+    mp3 = meeting.path.with_suffix(".mp3")
+    if mp3.is_file():
+        print(f"Audio:   {mp3}")
     print()
 
+    transcript = _read(meeting.path)
+    minutes = _read(meeting.minutes_path) if meeting.minutes_path else ""
     if show_all:
-        print(meeting.minutes)
-        print()
+        if minutes:
+            print(minutes)
+            print()
         print("--- Transcripción ---")
         print()
-        print(meeting.transcript)
-    elif show_transcript:
-        print(meeting.transcript)
+        print(transcript)
+    elif show_transcript or not minutes:
+        print(transcript)
     else:
-        print(meeting.minutes)
+        print(minutes)
     return 0
+
+
+def _prefix() -> str:
+    return load_settings().session_prefix or "reunion"
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        return f"No se pudo leer {path}: {error}\n"

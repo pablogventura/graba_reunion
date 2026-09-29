@@ -33,7 +33,6 @@ def transcribe_and_write_txt(
     device: str | None,
     min_mp3_bytes: int,
     skip_groq: bool,
-    db_path: Path,
     groq_model: str,
 ) -> int:
     if not mp3.is_file() or mp3.stat().st_size < min_mp3_bytes:
@@ -78,7 +77,6 @@ def transcribe_and_write_txt(
             session_base=base,
             mp3=mp3,
             txt=txt,
-            db_path=db_path,
             groq_model=groq_model,
             language=settings.whisperx_language,
         )
@@ -113,7 +111,6 @@ def transcribe_and_write_txt(
         session_base=base,
         mp3=mp3,
         txt=txt,
-        db_path=db_path,
         groq_model=groq_model,
         language=settings.whisperx_language,
     )
@@ -133,7 +130,6 @@ def run_record_flow(
     skip_transcribe: bool,
     skip_groq: bool,
     min_mp3_bytes: int,
-    db_path: Path,
     groq_model: str,
 ) -> int:
     flows: list[str] = []
@@ -168,11 +164,10 @@ def run_record_flow(
         return enrich_and_store(
             session_base=txt.stem,
             mp3=mp3,
-            txt=txt,
-            db_path=db_path,
-            groq_model=groq_model,
-            language=language or settings.whisperx_language,
-        )
+        txt=txt,
+        groq_model=groq_model,
+        language=language or settings.whisperx_language,
+    )
 
     if transcribe_only is not None:
         mp3 = transcribe_only.expanduser().resolve()
@@ -197,7 +192,6 @@ def run_record_flow(
             device=device,
             min_mp3_bytes=min_mp3_bytes,
             skip_groq=skip_groq,
-            db_path=db_path,
             groq_model=groq_model,
         )
 
@@ -241,7 +235,6 @@ def run_record_flow(
         device=device,
         min_mp3_bytes=min_mp3_bytes,
         skip_groq=skip_groq,
-        db_path=db_path,
         groq_model=groq_model,
     )
     if record_code != 0:

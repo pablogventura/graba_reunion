@@ -17,11 +17,12 @@ Manual de uso, configuración, flujos y resolución de problemas.
 11. [Audio (Pulse / ALSA)](#11-audio-pulse--alsa)
 12. [Transcripción y diarización](#12-transcripción-y-diarización)
 13. [Minutas con Groq](#13-minutas-con-groq)
-14. [Base de datos y consulta](#14-base-de-datos-y-consulta)
+14. [Consulta y búsqueda](#14-consulta-y-búsqueda)
 15. [CPU vs GPU](#15-cpu-vs-gpu)
 16. [Desarrollo y tests](#16-desarrollo-y-tests)
 17. [Troubleshooting](#17-troubleshooting)
 18. [Preguntas frecuentes](#18-preguntas-frecuentes)
+19. [Indicador y autograbación](#19-indicador-y-autograbación)
 
 ---
 
@@ -31,7 +32,7 @@ Manual de uso, configuración, flujos y resolución de problemas.
 
 1. **Graba** el micrófono y el audio de salida del sistema (monitor Pulse/ALSA) en un MP3.
 2. **Transcribe** con diarización de hablantes (WhisperX + pyannote) o, si preferís, sin diarización (`faster-whisper`).
-3. **Opcionalmente** genera título y minuta con Groq y guarda el resultado en SQLite.
+3. **Opcionalmente** genera título y minuta con Groq, en un markdown junto al `.txt`.
 
 Por defecto **no** llama a Groq: solo graba y transcribe. La minuta se activa con `--groq`.
 
@@ -46,7 +47,7 @@ Por defecto **no** llama a Groq: solo graba y transcribe. La minuta se activa co
                                     reunion_....txt
                                          |
                           (opcional --groq) v
-                              minuta.md + reunions.db
+                              {prefijo}_...._minuta.md
 ```
 
 ---
@@ -143,7 +144,7 @@ El wizard pregunta (Enter = mantener valor actual):
 5. Device (`cuda`/`cpu`) según detección de GPU
 6. Idioma y modelo Whisper
 7. Compute type y batch size
-8. Directorio de salida, prefijo de archivos, ruta SQLite
+8. Directorio de salida y prefijo de archivos
 9. Modelo Groq (si cargaste API key)
 
 Al primer `setup` / escritura, si solo existía un `.env` en el clone del repo, **se migra** a:
@@ -208,17 +209,7 @@ Nombre de sesión:
 {GRABA_SESSION_PREFIX}_{YYYY-MM-DD_HH-MM-SS}.txt
 ```
 
-Default del prefijo: `reunion`.
-
-### Base SQLite
-
-| Prioridad | Ruta |
-|-----------|------|
-| 1 | `--db PATH` |
-| 2 | `GRABA_DB` |
-| 3 | `<output-dir>/reunions.db` |
-
-Solo se escribe cuando usás `--groq` o `--enrich-only`.
+Default del prefijo: `reunion`. `list` y `show` leen `{prefijo}_AAAA-MM-DD_HH-MM-SS.txt`. El título sale del primer encabezado específico de `{prefijo}_..._minuta.md`. Si el encabezado es solo "Minuta de reunión" o "Meeting minutes", usa el nombre del archivo.
 
 ### Caches de modelos
 
@@ -256,7 +247,7 @@ Salida típica:
 graba-reunion --groq
 ```
 
-Además genera `{base}_minuta.md` y una fila en SQLite.
+Además genera `{base}_minuta.md`. El archivo empieza con el título que devolvió Groq.
 
 ### Grabar en el directorio actual
 
@@ -284,6 +275,12 @@ graba-reunion --transcribe-only ~/audio/reunion.mp3 --groq
 ```bash
 graba-reunion --enrich-only ~/.../reunion_2026-09-21_15-30-00.txt
 ```
+
+### Grabar solo cuando hay una llamada
+
+`graba-reunion-mic` deja un icono en la barra. Si Discord, Meet, Teams u otra app abre el micrófono, a los 3 segundos empieza a grabar (mic + monitor). Al colgar, espera 10 segundos y corta. Si duró menos de un minuto, borra el MP3. Si duró un minuto o más, transcribe sin Groq.
+
+Detalle en [Indicador y autograbación](#19-indicador-y-autograbación).
 
 ### Consultar reuniones guardadas (requiere haber usado `--groq`)
 
@@ -331,22 +328,34 @@ Exit code distinto de 0 si faltan piezas esenciales (ffmpeg, whisperx, HF_TOKEN)
 
 ### `list`
 
-Lista reuniones en la DB (rank, fecha, título).
+Lista reuniones a partir de los `.txt` (rank, fecha, título). El 1 es la más reciente.
 
 ```bash
 graba-reunion list
-graba-reunion list --db ~/datos/reunions.db
 ```
 
 ### `show N`
 
-Muestra la reunión número `N` (1 = más reciente).
+Muestra la reunión número `N` (1 = más reciente). Si hay minuta, la muestra; si no, el `.txt`.
 
 ```bash
-graba-reunion show 1              # minuta
+graba-reunion show 1              # minuta, o el txt si no hay minuta
 graba-reunion show 1 --transcript
 graba-reunion show 2 --all        # minuta + transcripción
 ```
+
+### `search`
+
+Busca en los `.txt`. El modo por defecto es por tema (embeddings locales, modelo `paraphrase-multilingual-MiniLM-L12-v2`). La primera búsqueda de tema descarga el modelo. El índice vive en `~/.local/share/graba-reunion/search-cache.json` y se rehace si cambia el `.txt` o si se borra ese JSON.
+
+```bash
+graba-reunion search "entrega del laboratorio"
+graba-reunion search --word "acta"
+graba-reunion search --participant Pablo "presupuesto"
+graba-reunion search --participant Pablo
+```
+
+`--word` es coincidencia literal, sin distinguir mayúsculas. `--participant` se puede combinar con tema o palabra. Sin texto, lista intervenciones de esa persona. `--json` imprime los resultados para el indicador.
 
 ---
 
@@ -357,7 +366,6 @@ Aplican al flujo de grabación/transcripción (root o `record`):
 | Opción | Descripción |
 |--------|-------------|
 | `-d`, `--output-dir` | Directorio de salida. Default: data dir XDG o `GRABA_OUTPUT_DIR` |
-| `--db PATH` | SQLite explícita |
 | `--mic` / `--mon` | Fuentes de audio (override de config) |
 | `--language` | Idioma ISO (`es`, `en`, ...). Aplica a WhisperX y a `--no-diarize` |
 | `--model` | Modelo (`large-v3`, `medium`, `tiny`, ...) |
@@ -366,7 +374,7 @@ Aplican al flujo de grabación/transcripción (root o `record`):
 | `--no-diarize` | Usa faster-whisper (sin speakers) |
 | `--skip-transcribe` | Solo graba el MP3 |
 | `--min-mp3-bytes N` | Mínimo de bytes para intentar transcribir (default 256) |
-| `--groq` | Minuta + SQLite |
+| `--groq` | Escribe `{base}_minuta.md` |
 | `--groq-model` | Modelo Groq (requiere `--groq`) |
 | `--enrich-only TXT` | Solo minuta Groq a partir de un TXT |
 
@@ -396,7 +404,6 @@ También se acepta `HUGGING_FACE_HUB_TOKEN` como alias de `HF_TOKEN`.
 | `GRABA_AUDIO_BACKEND` | `pulse` | `pulse` o `alsa` |
 | `GRABA_OUTPUT_DIR` | (XDG data/.../recordings) | Directorio de sesiones |
 | `GRABA_SESSION_PREFIX` | `reunion` | Prefijo de nombres de archivo |
-| `GRABA_DB` | `<output-dir>/reunions.db` | Ruta SQLite |
 
 ### Transcripción
 
@@ -513,9 +520,22 @@ No hay enumerator automático: hay que poner nombres que ffmpeg entienda con `-f
 - Modelo / idioma / device / compute / batch desde config o CLI
 - Requiere `HF_TOKEN` y licencias pyannote aceptadas
 - Salida principal: `.txt` con hablantes
+- Si hay perfiles de voz (`graba-reunion voices`), el hablante que coincide sale con su nombre. El resto sigue como `SPEAKER_00`
 - Artefactos extra (`.srt`, `.json`, ...) se limpian después
 
 Workaround interno: WhisperX corre con cwd en el temp del sistema para evitar un falso positivo de seguridad de NLTK cuando el proceso parte desde `$HOME`.
+
+### Nombres de voz
+
+`graba-reunion voices` diariza los MP3 que ya están en el directorio de salida, agrupa voces parecidas y deja un clip de cada una en `~/.local/share/graba-reunion/voices/clips/`. En `nombres.txt` se completa el nombre (`1=Pablo`). El mismo nombre en dos líneas las junta en un perfil. `1=-` descarta esa muestra (música u otro ruido) y no la usa para poner un nombre.
+
+```bash
+graba-reunion voices
+# editar ~/.local/share/graba-reunion/voices/nombres.txt
+graba-reunion voices --apply
+```
+
+A partir de ahí, cada transcripción nueva compara la voz con esos perfiles. No reescribe los `.txt` viejos. Una voz desconocida, o una toma muy distinta, sigue como `SPEAKER_XX`.
 
 ### Modo `--no-diarize` (faster-whisper)
 
@@ -544,18 +564,17 @@ graba-reunion --enrich-only ruta/al.txt
 
 Produce:
 
-- `{base}_minuta.md` (resumen, temas, decisiones, action items, notas)
-- Fila en SQLite con título, transcript, minuta, modelo
+- `{base}_minuta.md` (título, resumen, temas, decisiones, action items, notas)
 
-Sin `--groq`, no se llama a la API ni se toca la DB.
+Sin `--groq`, no se llama a la API.
 
 Idioma: alineado con `--language` / `GRABA_WHISPERX_LANGUAGE`.
 
 ---
 
-## 14. Base de datos y consulta
+## 14. Consulta y búsqueda
 
-Schema conceptual: una fila por sesión enriquecida (título, paths, transcript, minutes, modelo, timestamps).
+`list` y `show` leen los `.txt` del directorio de salida. El título de la lista es el primer encabezado de la minuta que no sea genérico. Si no hay minuta, el título es el nombre del archivo.
 
 ```bash
 graba-reunion list
@@ -565,9 +584,10 @@ graba-reunion list
 graba-reunion show 1
 graba-reunion show 1 --transcript
 graba-reunion show 1 --all
+graba-reunion search "entrega del laboratorio"
 ```
 
-Si la DB no existe (nunca corriste `--groq`), `list`/`show` fallan avisando la ruta esperada. Creá una reunión con `--groq` o apuntá `--db` a una DB existente.
+La búsqueda por tema no usa la red de Groq. Guarda vectores en `search-cache.json`, al lado de los datos de la app, no en una base.
 
 ---
 
@@ -613,12 +633,14 @@ Estructura relevante:
 src/graba_reunion/
   cli.py              # argparse
   config.py           # Settings, XDG, .env
-  paths.py            # sesiones y DB
+  paths.py            # sesiones
+  meetings.py         # list y show desde los .txt
   recording.py        # ffmpeg
   setup_wizard.py
-  enrichment.py       # Groq + SQLite
+  enrichment.py       # minuta Groq
+  search.py           # tema, palabra, participante
   transcription/      # whisperx, faster_whisper, srt
-  commands/           # list, show, setup, check-deps, record
+  commands/           # list, show, setup, check-deps, record, voices, search
 ```
 
 ---
@@ -634,7 +656,7 @@ src/graba_reunion/
 | Sin audio / solo un lado | `pactl list sources short`; mic vs `.monitor` |
 | Torch CUDA no disponible | `setup --install-deps -y` o pasá a `cpu` |
 | No encuentra config | `graba-reunion check-deps` (imprime ruta `.env`); revisá `GRABA_CONFIG` / XDG |
-| `list` sin DB | Todavía no usaste `--groq`, o `--db` apunta mal |
+| `list` vacío | No hay `{prefijo}_AAAA-MM-DD_HH-MM-SS.txt` en el directorio de salida |
 | Groq falla | `GROQ_API_KEY`; cuota/red; transcript vacío |
 | Muy lento en CPU | `--model medium` o `small` |
 | Espacio en disco | Caches en `~/.cache`; modelos multi-GB |
@@ -652,7 +674,7 @@ ls -la ~/.local/share/graba-reunion/recordings/ | tail
 ## 18. Preguntas frecuentes
 
 **¿Hace falta Groq para transcribir?**  
-No. Solo para minuta/`list`/`show` enriquecidos.
+No. Solo para la minuta. `list` y `show` leen los `.txt` aunque no haya Groq.
 
 **¿Dónde se guarda lo que grabo si no paso `-d`?**  
 En `$XDG_DATA_HOME/graba-reunion/recordings` (típicamente `~/.local/share/graba-reunion/recordings`).
@@ -674,6 +696,71 @@ Corré `graba-reunion setup` una vez: migra a XDG. Después podés borrar el `.e
 
 **¿El MP3 incluye mi voz y la de la reunión por Meet/Zoom?**  
 Sí, si `GRABA_MON` es el monitor de la salida por la que escuchás la llamada, y el mic captura tu voz.
+
+**¿Un mensaje de voz corto queda grabado?**  
+El indicador lo graba, pero si dura menos de 60 segundos borra el MP3 y no transcribe.
+
+**¿Por qué Meet figura como Firefox o Chrome?**  
+PipeWire ve el proceso que abre el micrófono, no el nombre del sitio.
+
+---
+
+## 19. Indicador y autograbación
+
+`graba-reunion-mic` es un icono de GNOME (AppIndicator) que arranca con la sesión gráfica.
+
+| Icono | Significado |
+|-------|-------------|
+| Micrófono tachado | No está grabando (aunque otra app use el micrófono, o haya una transcripción) |
+| Micrófono activo | Hay una grabación en curso, también si está en pausa |
+
+El menú lista la app y el dispositivo (por ejemplo `Discord - HyperX...`), y debajo los nombres de las transcripciones (`.txt`) de las últimas 24 horas. Un clic en un nombre abre ese archivo con el editor de texto predeterminado.
+
+Con el micrófono libre, **Grabar** empieza enseguida, sin esperar los 3 segundos. Si nadie más usa el micrófono, la toma se corta sola tras 10 minutos de silencio en el audio. Si después otra app abre el micrófono, al colgar vuelve la regla de los 10 segundos. Durante la grabación aparecen **Pausar**, **Detener** y **Cancelar**. Pausar manda SIGSTOP al proceso y a ffmpeg: el MP3 sigue siendo el mismo y el silencio no corta la toma. Si la llamada termina mientras está en pausa, avisa una vez y no cierra solo. Reanudar manda SIGCONT y el temporizador de silencio vuelve a cero. Detener (también **Salir**) reanuda si hacía falta y manda SIGTERM; después vale la regla de los 60 segundos. Cancelar abre un cuadro de confirmación: si aceptás, corta, borra el MP3 y no transcribe.
+
+**Buscar** abre un diálogo (tema, palabra y participante opcional). La búsqueda corre en segundo plano con `graba-reunion search --json`. Un clic en un resultado abre el `.txt`.
+
+### Cuándo graba
+
+Cuenta cualquier stream de captura de PipeWire o Pulse hacia un micrófono (`Stream/Input` o `Stream/Input/Audio`). No cuenta:
+
+- el monitor de salida (`*.monitor`)
+- PipeWire con la tarjeta abierta pero sin una app leyendo audio
+- el `ffmpeg` de la grabación que el propio indicador lanzó
+
+No hay lista de aplicaciones. Meet en el navegador aparece como Chrome, Chromium o Firefox. Teams de escritorio aparece como su proceso. Discord (también Flatpak) aparece como `Discord`.
+
+Tiempos:
+
+- 3 segundos de uso continuo antes de empezar
+- 10 segundos sin apps ajenas antes de cortar (un mute que deja el stream abierto no corta)
+- menos de 60 segundos: se borra el MP3 y no hay transcripción
+- 60 segundos o más: `graba-reunion --transcribe-only` (sin Groq)
+
+La grabación usa el mismo mic y monitor de la config (`GRABA_MIC`, `GRABA_MON`). Los archivos van al directorio de salida habitual.
+
+### Si se corta la luz o se mata el indicador
+
+En cuanto el CLI imprime la ruta del MP3, el indicador deja una marca en `~/.local/share/graba-reunion/pending/`. Al volver a entrar a la sesión, si esa grabación no tiene `.txt`:
+
+- menos de 60 segundos: borra el MP3 y avisa
+- 60 segundos o más (o si no se puede medir la duración): lanza `--transcribe-only`
+
+La marca se borra cuando existe el `.txt`. Si la transcripción falla, queda y se reintenta la próxima vez. El resultado sale como notificación de GNOME (libnotify), no por la consola. Un clic en el aviso de transcripción lista abre el `.txt` con el editor predeterminado. El detalle sigue en el log.
+
+### Arranque al iniciar sesión
+
+El archivo es `~/.config/autostart/graba-reunion-mic.desktop`. El `Exec` apunta a `scripts/graba-reunion-mic`, que usa el Python del sistema (ahí está PyGObject) y el código del repositorio. Grabar y transcribir lo hace el `graba-reunion` instalado. Arranca al entrar a la sesión, no antes del login.
+
+Para lanzarlo a mano:
+
+```bash
+graba-reunion-mic
+```
+
+Log: `~/.local/share/graba-reunion/mic-indicator.log`.
+
+Hace falta el paquete del indicador (`gir1.2-ayatanaappindicator3-0.1` en Debian/Ubuntu) y una extensión de iconos en la barra si el escritorio no los muestra solo.
 
 ---
 

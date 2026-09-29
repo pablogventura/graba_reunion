@@ -158,7 +158,6 @@ def run_setup_wizard(*, input_fn: InputFn = _default_input) -> int:
         settings.session_prefix,
         input_fn=input_fn,
     )
-    graba_db = _prompt_value("GRABA_DB", settings.graba_db, input_fn=input_fn)
     groq_model = settings.groq_model
     if groq_key:
         groq_model = _prompt_value(
@@ -181,7 +180,6 @@ def run_setup_wizard(*, input_fn: InputFn = _default_input) -> int:
             "GRABA_WHISPERX_BATCH_SIZE": batch_size,
             "GRABA_OUTPUT_DIR": output_dir,
             "GRABA_SESSION_PREFIX": session_prefix,
-            "GRABA_DB": graba_db,
             "GRABA_GROQ_MODEL": groq_model,
             "GRABA_TORCH_INDEX": settings.torch_index,
             "GRABA_GROQ_MAX_CHARS": str(settings.groq_max_chars),

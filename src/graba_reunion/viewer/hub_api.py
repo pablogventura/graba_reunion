@@ -17,6 +17,7 @@ from graba_reunion.commands.voice_wizard import (
 from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
 from graba_reunion.enrichment import enrich_and_store
 from graba_reunion.media import MEDIA_SUFFIXES
+from graba_reunion.media_join import join_media_files, joined_output_path
 from graba_reunion.phrases import start_for_clock
 from graba_reunion.search import cache_path, embed_texts, search_transcripts
 from graba_reunion.voice_enroll import load_review
@@ -81,7 +82,12 @@ def regenerate_phrases(directory: Path, media: Path) -> None:
         raise RuntimeError("No se pudieron regenerar las frases.")
 
 
-def transcribe_uploads(directory: Path, files: list[tuple[str, bytes]]) -> list[str]:
+def transcribe_uploads(
+    directory: Path,
+    files: list[tuple[str, bytes]],
+    *,
+    join: bool = False,
+) -> list[str]:
     if not files:
         raise ValueError("No llegó ningún archivo.")
     saved: list[Path] = []
@@ -95,7 +101,17 @@ def transcribe_uploads(directory: Path, files: list[tuple[str, bytes]]) -> list[
         target = _unique_path(directory / safe)
         target.write_bytes(payload)
         saved.append(target)
-    code = cmd_transcribe(saved, open_viewer=False)
+    if join:
+        if len(saved) < 2:
+            raise ValueError("Para unir hace falta más de un archivo.")
+        joined = join_media_files(saved, joined_output_path(directory, saved))
+        code = cmd_transcribe([joined], open_viewer=False, output_dir=directory)
+        if code != 0:
+            raise RuntimeError("Falló la transcripción.")
+        if not joined.with_suffix(".txt").is_file():
+            raise RuntimeError("Falló la transcripción.")
+        return [joined.stem]
+    code = cmd_transcribe(saved, open_viewer=False, output_dir=directory)
     if code != 0:
         raise RuntimeError("Falló la transcripción.")
     return [path.stem for path in saved if path.with_suffix(".txt").is_file()]

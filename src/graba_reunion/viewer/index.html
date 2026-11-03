@@ -86,7 +86,7 @@
       <h1>Voces</h1>
       <p id="voices-status" class="note"></p>
       <nav class="tabs voices-subtabs">
-        <button type="button" data-voices-tab="new" class="active">Nuevas</button>
+        <button type="button" data-voices-tab="new" class="active">Por nombrar</button>
         <button type="button" data-voices-tab="similar">Parecidos</button>
         <button type="button" data-voices-tab="profiles">Perfiles</button>
       </nav>
@@ -102,6 +102,10 @@
       <p class="note">Subí audio o video. El texto queda en la carpeta del visor.</p>
       <form id="transcribe-form" class="transcribe-form">
         <input type="file" id="transcribe-files" accept="audio/*,video/*" multiple>
+        <label class="check">
+          <input type="checkbox" id="transcribe-join" checked>
+          Unir varios en una sola conversación (orden de selección)
+        </label>
         <button type="submit">Transcribir</button>
       </form>
       <p id="transcribe-status" class="note"></p>

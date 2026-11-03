@@ -395,7 +395,10 @@ En el menú contextual de un audio o un video aparece **Transcribir**. Pasa el a
 
 ```bash
 graba-reunion transcribe audio.mp3 video.mp4
+graba-reunion transcribe --join parte1.ogg parte2.ogg parte3.ogg
 ```
+
+Sin `--join`, cada archivo es una reunión aparte. Con `--join`, ffmpeg los concatena en orden a un MP3 `*_junto_*.mp3` y se transcribe una sola conversación. En el hub, **Transcribir** tiene la casilla "Unir varios en una sola conversación" (activada por defecto si elegís más de un archivo).
 
 Nemo usa `scripts/nemo/graba-reunion-transcribe.nemo_action`:
 

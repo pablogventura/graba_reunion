@@ -179,7 +179,7 @@ def test_transcribe_upload_mocked(tmp_path: Path) -> None:
         f"--{boundary}--\r\n"
     ).encode("utf-8")
 
-    def fake_transcribe(paths, open_viewer=True):
+    def fake_transcribe(paths, open_viewer=True, join=False, output_dir=None):
         for path in paths:
             path.with_suffix(".txt").write_text("[SPEAKER_00]: hola\n", encoding="utf-8")
         return 0
@@ -197,6 +197,48 @@ def test_transcribe_upload_mocked(tmp_path: Path) -> None:
         assert payload["ok"] is True
         assert payload["ids"] == ["nota"]
         assert (tmp_path / "nota.ogg").is_file()
+    finally:
+        httpd.shutdown()
+
+
+def test_transcribe_upload_join_mocked(tmp_path: Path) -> None:
+    httpd, port = _server(tmp_path)
+    boundary = "----bound"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="a.ogg"\r\n\r\n'
+        "aaa\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="b.ogg"\r\n\r\n'
+        "bbb\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+
+    def fake_join(sources, destination):
+        destination.write_bytes(b"joined")
+        return destination
+
+    def fake_transcribe(paths, open_viewer=True, join=False, output_dir=None):
+        for path in paths:
+            path.with_suffix(".txt").write_text("hola\n", encoding="utf-8")
+        return 0
+
+    try:
+        with (
+            patch("graba_reunion.viewer.hub_api.join_media_files", side_effect=fake_join),
+            patch("graba_reunion.viewer.hub_api.cmd_transcribe", side_effect=fake_transcribe),
+        ):
+            request = Request(
+                f"http://127.0.0.1:{port}/api/transcribe?join=1",
+                data=body,
+                method="POST",
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            )
+            with urlopen(request) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        assert payload["ok"] is True
+        assert len(payload["ids"]) == 1
+        assert "_junto_" in payload["ids"][0]
     finally:
         httpd.shutdown()
 

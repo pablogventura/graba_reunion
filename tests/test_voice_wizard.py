@@ -6,7 +6,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from graba_reunion.commands.voice_wizard import _handler, merge_voice_pair
+from graba_reunion.commands.voice_wizard import _handler, merge_voice_pair, namable_voices
 from graba_reunion.voice_enroll import load_review
 from graba_reunion.voices import (
     SpeakerTrack,
@@ -64,7 +64,8 @@ def test_wizard_saves_a_new_name_and_keeps_the_old_one(
         assert "Unir" in similar_page
         with urlopen(f"http://127.0.0.1:{port}/api/similar") as response:
             similar = json.loads(response.read().decode("utf-8"))
-        assert similar["pairs"][0]["score"] < 0.2
+        # Voces ortogonales no entran al piso de parecidos del hub.
+        assert similar["pairs"] == []
         assert similar["voices"]
         with urlopen(f"http://127.0.0.1:{port}/api/voices") as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -97,6 +98,30 @@ def test_wizard_saves_a_new_name_and_keeps_the_old_one(
     assert bank.match((0.0, 1.0)) == "Mica"
     assert "2=Mica" in names_path().read_text(encoding="utf-8")
     assert "1=Otra" not in names_path().read_text(encoding="utf-8")
+
+
+def test_namable_includes_weak_and_rejected(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    bank = VoiceBank(
+        threshold=0.7,
+        profiles=(VoiceProfile(name="Pablo", embeddings=((1.0, 0.0),)),),
+        rejected=((0.0, 1.0),),
+    )
+    save_voice_bank(bank)
+    clusters = [
+        VoiceCluster(1, (_track("SPEAKER_00", (1.0, 0.0)),)),  # fuerte -> no
+        VoiceCluster(2, (_track("SPEAKER_01", (0.0, 1.0)),)),  # rejected -> unnamed
+        VoiceCluster(3, (_track("SPEAKER_02", (0.8, 0.6)),)),  # flojo o new
+        VoiceCluster(4, (_track("SPEAKER_03", (0.0, 0.0, 1.0)),)),  # new
+    ]
+    rows = namable_voices(clusters, load_voice_bank())
+    ids = {row["id"] for row in rows}
+    assert 1 not in ids
+    assert 2 in ids
+    assert 4 in ids
+    reasons = {row["id"]: row["reason"] for row in rows}
+    assert reasons[2] == "unnamed"
+    assert reasons[4] == "new"
 
 
 def test_merge_voice_pair_moves_both_samples_to_one_name(monkeypatch, tmp_path: Path) -> None:

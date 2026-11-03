@@ -63,6 +63,7 @@ graba-reunion view
 graba-reunion view --tab voices
 graba-reunion nota.ogg             # atajo = transcribe + abre el visor
 graba-reunion transcribe audio.mp3 video.mp4
+graba-reunion transcribe --join a.ogg b.ogg   # una sola conversación
 graba-reunion setup
 graba-reunion setup --install-deps -y
 graba-reunion check-deps

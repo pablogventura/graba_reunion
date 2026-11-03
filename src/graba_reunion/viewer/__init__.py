@@ -8,7 +8,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import urlopen
 
 from graba_reunion.commands.voice_wizard import clip_for
@@ -284,7 +284,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self._voices_merge()
             return
         if route == "/api/transcribe":
-            self._transcribe_upload()
+            self._transcribe_upload(parsed.query)
             return
         if route.startswith("/api/meetings/") and route.endswith("/speakers"):
             self._rename_speakers(route)
@@ -459,20 +459,26 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return
         self._json({"ok": True, "message": "Frases regeneradas."})
 
-    def _transcribe_upload(self) -> None:
+    def _transcribe_upload(self, query: str = "") -> None:
         length = int(self.headers.get("Content-Length") or "0")
         if length <= 0 or length > MAX_BODY_BYTES:
             self._json({"ok": False, "message": "Cuerpo inválido o demasiado grande."}, status=400)
             return
         body = self.rfile.read(length)
         content_type = self.headers.get("Content-Type") or ""
+        join = hub_api.parse_query_bool(parse_qs(query).get("join") or [])
         try:
             files = hub_api.extract_multipart_files(content_type, body)
-            ids = hub_api.transcribe_uploads(self.directory, files)
+            ids = hub_api.transcribe_uploads(self.directory, files, join=join)
         except Exception as error:  # noqa: BLE001
             self._json({"ok": False, "message": str(error)}, status=400)
             return
-        self._json({"ok": True, "ids": ids, "message": "Transcripción lista."})
+        message = (
+            "Conversación unida y transcrita."
+            if join
+            else "Transcripción lista."
+        )
+        self._json({"ok": True, "ids": ids, "message": message})
 
     def _read_body(self, limit: int) -> bytes:
         length = int(self.headers.get("Content-Length") or "0")

@@ -8,34 +8,52 @@ from pathlib import Path
 
 from graba_reunion.commands.record import run_record_flow
 from graba_reunion.config import load_settings
+from graba_reunion.media_join import join_media_files, joined_output_path
 
 
-def cmd_transcribe(paths: list[Path], *, open_viewer: bool = True) -> int:
+def cmd_transcribe(
+    paths: list[Path],
+    *,
+    open_viewer: bool = True,
+    join: bool = False,
+    output_dir: Path | None = None,
+) -> int:
     settings = load_settings()
+    resolved: list[Path] = []
     exit_code = 0
-    done: list[Path] = []
     for given in paths:
-        resolved = given.expanduser()
-        if not resolved.is_file():
+        path = given.expanduser()
+        if not path.is_file():
             print(f"No existe el archivo: {given}", file=sys.stderr)
             exit_code = 1
             continue
-        media = resolved.resolve()
-        result = run_record_flow(
-            output_dir=media.parent,
-            mic=settings.graba_mic,
-            mon=settings.graba_mon,
-            language=settings.whisperx_language,
-            model=settings.whisperx_model,
-            device=None,
-            transcribe_only=media,
-            enrich_only=None,
-            no_diarize=False,
-            skip_transcribe=False,
-            skip_groq=True,
-            min_mp3_bytes=256,
-            groq_model=settings.groq_model,
-        )
+        resolved.append(path.resolve())
+    if not resolved:
+        return 1 if exit_code else 0
+
+    if join:
+        if len(resolved) < 2:
+            print("Para --join hace falta más de un archivo.", file=sys.stderr)
+            return 1
+        destination_dir = (output_dir or resolved[0].parent).resolve()
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        joined = joined_output_path(destination_dir, resolved)
+        try:
+            media = join_media_files(resolved, joined)
+        except (OSError, RuntimeError, ValueError, FileNotFoundError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        result = _transcribe_one(media, settings)
+        if result != 0:
+            return result
+        done = [media] if media.with_suffix(".txt").is_file() else []
+        if open_viewer:
+            _open_finished(done)
+        return 0
+
+    done: list[Path] = []
+    for media in resolved:
+        result = _transcribe_one(media, settings)
         if result != 0:
             exit_code = result
             continue
@@ -44,6 +62,24 @@ def cmd_transcribe(paths: list[Path], *, open_viewer: bool = True) -> int:
     if open_viewer:
         _open_finished(done)
     return exit_code
+
+
+def _transcribe_one(media: Path, settings) -> int:
+    return run_record_flow(
+        output_dir=media.parent,
+        mic=settings.graba_mic,
+        mon=settings.graba_mon,
+        language=settings.whisperx_language,
+        model=settings.whisperx_model,
+        device=None,
+        transcribe_only=media,
+        enrich_only=None,
+        no_diarize=False,
+        skip_transcribe=False,
+        skip_groq=True,
+        min_mp3_bytes=256,
+        groq_model=settings.groq_model,
+    )
 
 
 def _open_finished(media_files: list[Path]) -> None:

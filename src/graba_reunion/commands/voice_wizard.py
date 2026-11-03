@@ -401,6 +401,35 @@ def pending_voices(clusters: list[VoiceCluster], bank) -> list[VoiceCluster]:
     return [cluster for cluster in clusters if is_new_voice(cluster, bank)]
 
 
+WEAK_MATCH = 0.85
+
+
+def namable_voices(clusters: list[VoiceCluster], bank) -> list[dict]:
+    """Voces para poner nombre: nuevas, sin perfil, o con match flojo."""
+    rows: list[dict] = []
+    for cluster in clusters:
+        scores = profile_match_scores(cluster, bank)
+        best_name = scores[0][0] if scores else None
+        best_score = scores[0][1] if scores else 0.0
+        label = cluster_display_name(cluster, bank)
+        if is_new_voice(cluster, bank):
+            reason = "new"
+        elif label is None:
+            reason = "unnamed"
+        elif best_score < WEAK_MATCH:
+            reason = "weak"
+        else:
+            continue
+        row = _voice_row(cluster)
+        row["reason"] = reason
+        row["label"] = label or "sin nombre"
+        row["best_profile"] = best_name
+        row["best_score"] = round(best_score, 3) if best_score else 0.0
+        rows.append(row)
+    rows.sort(key=lambda item: ({"new": 0, "unnamed": 1, "weak": 2}[item["reason"]], -item["id"]))
+    return rows
+
+
 def similar_payload(clusters: list[VoiceCluster]) -> dict:
     bank = load_voice_bank()
     rows = {cluster.cluster_id: _voice_row(cluster) for cluster in clusters}
@@ -408,7 +437,11 @@ def similar_payload(clusters: list[VoiceCluster]) -> dict:
         label = cluster_display_name(cluster, bank)
         rows[cluster.cluster_id]["label"] = label or "sin nombre"
     pairs = []
-    for left_id, right_id, score in voice_pair_scores(clusters)[:40]:
+    # Umbral un poco bajo el match oficial: sirven para revisar falsos negativos.
+    floor = max(0.45, MATCH_SIMILARITY - 0.25)
+    for left_id, right_id, score in voice_pair_scores(clusters):
+        if score < floor:
+            break
         pairs.append(
             {
                 "left": rows[left_id],
@@ -416,6 +449,8 @@ def similar_payload(clusters: list[VoiceCluster]) -> dict:
                 "score": round(score, 3),
             }
         )
+        if len(pairs) >= 40:
+            break
     voices = []
     for cluster in clusters:
         matches = [
@@ -435,15 +470,19 @@ def similar_payload(clusters: list[VoiceCluster]) -> dict:
 
 def voice_payload(clusters: list[VoiceCluster]) -> dict:
     bank = load_voice_bank()
-    pending = pending_voices(clusters, bank)
+    namable = namable_voices(clusters, bank)
     return {
         "known_names": [profile.name for profile in bank.profiles],
-        "voices": [_voice_row(cluster) for cluster in pending],
+        "voices": namable,
+        "new_count": sum(1 for row in namable if row["reason"] == "new"),
+        "threshold": MATCH_SIMILARITY,
+        "weak_threshold": WEAK_MATCH,
     }
 
 
 def save_submitted_names(clusters: list[VoiceCluster], raw_names: dict) -> dict:
-    allowed = {cluster.cluster_id for cluster in pending_voices(clusters, load_voice_bank())}
+    bank = load_voice_bank()
+    allowed = {row["id"] for row in namable_voices(clusters, bank)}
     names: dict[int, str] = {}
     for key, value in raw_names.items():
         if not str(key).isdigit():
@@ -457,12 +496,10 @@ def save_submitted_names(clusters: list[VoiceCluster], raw_names: dict) -> dict:
         names[cluster_id] = cleaned
     if not names:
         return {"ok": True, "message": "No había nombres para guardar."}
-    current = load_voice_bank()
-    added = bank_from_names(
-        [cluster for cluster in clusters if cluster.cluster_id in names],
-        names,
-        threshold=current.threshold,
-    )
+    selected = [cluster for cluster in clusters if cluster.cluster_id in names]
+    vectors = [track.embedding for cluster in selected for track in cluster.tracks]
+    current = without_embeddings(bank, vectors)
+    added = bank_from_names(selected, names, threshold=current.threshold)
     save_voice_bank(merge_voice_banks(current, added))
     patch_names_file(names)
     saved = ", ".join(profile.name for profile in added.profiles)

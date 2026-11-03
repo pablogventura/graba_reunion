@@ -93,6 +93,8 @@ ejemplos:
       Igual que: graba-reunion transcribe audio.ogg (abre el visor al terminar).
   graba-reunion transcribe audio.mp3 video.mp4
       Transcribir archivos de audio o video que ya existen.
+  graba-reunion transcribe --join parte1.ogg parte2.ogg
+      Unir los audios y transcribirlos como una sola conversación.
 
 Las opciones de grabación/transcripción funcionan con o sin el subcomando record.""",
     )
@@ -206,11 +208,20 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
         "transcribe",
         help="Transcribir archivos de audio o video que ya existen.",
     )
+    _add_output_args(transcribe_parser)
     transcribe_parser.add_argument(
         "paths",
         nargs="+",
         type=Path,
         help="Uno o más archivos. El texto queda al lado de cada uno.",
+    )
+    transcribe_parser.add_argument(
+        "--join",
+        action="store_true",
+        help=(
+            "Unir todos los archivos en un solo MP3 (en orden) y "
+            "transcribirlos como una sola conversación."
+        ),
     )
     transcribe_parser.set_defaults(command="transcribe")
 
@@ -355,7 +366,11 @@ def main() -> int:
             tab=getattr(args, "tab", "") or "",
         )
     if command == "transcribe":
-        return cmd_transcribe(list(args.paths))
+        return cmd_transcribe(
+            list(args.paths),
+            join=bool(getattr(args, "join", False)),
+            output_dir=args.output_dir,
+        )
 
     enrich_only = getattr(args, "enrich_only", None)
     use_groq = bool(getattr(args, "groq", False))

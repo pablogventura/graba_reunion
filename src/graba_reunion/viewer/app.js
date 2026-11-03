@@ -548,17 +548,22 @@ async function runSearch() {
 
 async function runTranscribe() {
   const input = document.querySelector("#transcribe-files");
+  const joinBox = document.querySelector("#transcribe-join");
   const status = document.querySelector("#transcribe-status");
   if (!input.files || !input.files.length) {
     status.textContent = "Elegí al menos un archivo.";
     return;
   }
-  status.textContent = "Transcribiendo... puede demorar.";
+  const join = Boolean(joinBox && joinBox.checked && input.files.length > 1);
+  status.textContent = join
+    ? "Uniendo audios y transcribiendo... puede demorar."
+    : "Transcribiendo... puede demorar.";
   const body = new FormData();
   for (const file of input.files) {
     body.append("files", file, file.name);
   }
-  const response = await fetch("/api/transcribe", { method: "POST", body });
+  const url = "/api/transcribe" + (join ? "?join=1" : "");
+  const response = await fetch(url, { method: "POST", body });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.ok) {
     status.textContent = payload.message || "Falló la transcripción.";
@@ -568,10 +573,10 @@ async function runTranscribe() {
   status.textContent = payload.message || "Listo.";
   if (ids.length) {
     showHub("conversations", true, false);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("tab");
-    url.searchParams.set("id", ids[0]);
-    history.pushState({}, "", url);
+    const next = new URL(window.location.href);
+    next.searchParams.delete("tab");
+    next.searchParams.set("id", ids[0]);
+    history.pushState({}, "", next);
     loadMeetings(ids[0], null);
   }
 }
@@ -588,64 +593,91 @@ async function loadVoices() {
     document.querySelector("#voices-profiles").replaceChildren();
     return;
   }
-  status.textContent = (payload.voices || []).length
-    ? "Voces nuevas para nombrar."
-    : "No hay voces nuevas. Mirá Parecidos o Perfiles.";
+  const count = (payload.voices || []).length;
+  status.textContent = count
+    ? count + " voz(ces) para nombrar o revisar. Escuchá el clip y escribí el nombre."
+    : "No hay voces pendientes. En Parecidos podés unir grupos de la misma persona.";
   renderNewVoices(payload);
   loadSimilar();
   renderProfiles(payload.known_names || []);
 }
 
+function voiceReasonLabel(reason, voice) {
+  if (reason === "new") {
+    return "Nueva (sin perfil)";
+  }
+  if (reason === "unnamed") {
+    return "Sin nombre asignado";
+  }
+  if (reason === "weak") {
+    const score = Math.round((voice.best_score || 0) * 100);
+    return "Match flojo con " + (voice.best_profile || "?") + " (" + score + "%)";
+  }
+  return "";
+}
+
 function renderNewVoices(payload) {
   const root = document.querySelector("#voices-new");
   root.replaceChildren();
+  const help = document.createElement("p");
+  help.className = "note";
+  help.textContent =
+    "Escuchá el clip. Escribí el nombre (podés reusar uno de la lista). "
+    + "Un guion (-) la ignora (ruido/música). Vacío la deja para después. "
+    + "Los nombres valen para las próximas transcripciones; no reescriben textos viejos.";
+  root.append(help);
   const voices = payload.voices || [];
   if (!voices.length) {
     const note = document.createElement("p");
     note.className = "note";
-    note.textContent = "No hay voces nuevas.";
+    note.textContent = "No hay voces para nombrar ahora.";
     root.append(note);
     return;
   }
+  ensureKnownNamesList(payload.known_names || []);
   for (const voice of voices) {
     const card = document.createElement("div");
     card.className = "voice-card";
     const title = document.createElement("strong");
     title.textContent = voice.title || String(voice.id);
+    const badge = document.createElement("span");
+    badge.className = "voice-badge";
+    badge.textContent = voiceReasonLabel(voice.reason, voice);
     const sources = document.createElement("p");
     sources.className = "note";
     sources.textContent = voice.sources || "";
-    card.append(title, sources);
+    card.append(title, badge, sources);
     if (voice.clip) {
       const audio = document.createElement("audio");
       audio.controls = true;
+      audio.preload = "none";
       audio.src = voice.clip;
       card.append(audio);
+    } else {
+      const missing = document.createElement("p");
+      missing.className = "note";
+      missing.textContent = "Sin clip de audio.";
+      card.append(missing);
     }
     const input = document.createElement("input");
     input.type = "text";
     input.dataset.voiceId = String(voice.id);
+    input.setAttribute("list", "known-names");
     input.placeholder = "Nombre (- para ignorar)";
-    if (payload.known_names && payload.known_names.length) {
-      const listId = "known-names";
-      input.setAttribute("list", listId);
+    if (voice.reason === "weak" && voice.best_profile) {
+      input.value = voice.best_profile;
     }
-    card.append(input);
+    const ignore = document.createElement("button");
+    ignore.type = "button";
+    ignore.textContent = "Ignorar";
+    ignore.addEventListener("click", () => {
+      input.value = "-";
+    });
+    const row = document.createElement("div");
+    row.className = "voices-actions";
+    row.append(input, ignore);
+    card.append(row);
     root.append(card);
-  }
-  if (payload.known_names && payload.known_names.length) {
-    let datalist = document.querySelector("#known-names");
-    if (!datalist) {
-      datalist = document.createElement("datalist");
-      datalist.id = "known-names";
-      document.body.append(datalist);
-    }
-    datalist.replaceChildren();
-    for (const name of payload.known_names) {
-      const option = document.createElement("option");
-      option.value = name;
-      datalist.append(option);
-    }
   }
   const actions = document.createElement("div");
   actions.className = "voices-actions";
@@ -655,6 +687,21 @@ function renderNewVoices(payload) {
   save.addEventListener("click", saveVoiceNames);
   actions.append(save);
   root.append(actions);
+}
+
+function ensureKnownNamesList(names) {
+  let datalist = document.querySelector("#known-names");
+  if (!datalist) {
+    datalist = document.createElement("datalist");
+    datalist.id = "known-names";
+    document.body.append(datalist);
+  }
+  datalist.replaceChildren();
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    datalist.append(option);
+  }
 }
 
 async function saveVoiceNames() {
@@ -688,47 +735,177 @@ async function loadSimilar() {
     root.append(note);
     return;
   }
+  const cut = Math.round((payload.threshold || 0.7) * 100);
+  const help = document.createElement("p");
+  help.className = "note";
+  help.textContent =
+    "Cómo usar: escuchá los dos clips. Si es la misma persona, escribí el nombre "
+    + "y tocá Unir (queda un solo perfil). Si no es la misma, no hagas nada con ese par. "
+    + "A partir de " + cut + "% el sistema las trata como la misma voz.";
+  root.append(help);
+
+  const pairsTitle = document.createElement("h2");
+  pairsTitle.textContent = "Pares parecidos (entre grabaciones)";
+  root.append(pairsTitle);
   const pairs = payload.pairs || [];
   if (!pairs.length) {
     const note = document.createElement("p");
     note.className = "note";
-    note.textContent = "No hay pares parecidos.";
+    note.textContent = "No hay pares lo bastante parecidos.";
+    root.append(note);
+  }
+  for (const pair of pairs) {
+    root.append(similarPairCard(pair));
+  }
+
+  const profilesTitle = document.createElement("h2");
+  profilesTitle.textContent = "Cada voz vs perfiles guardados";
+  root.append(profilesTitle);
+  const voices = payload.voices || [];
+  if (!voices.length) {
+    const note = document.createElement("p");
+    note.className = "note";
+    note.textContent = "Sin voces en el review.";
     root.append(note);
     return;
   }
-  for (const pair of pairs) {
-    const card = document.createElement("div");
-    card.className = "voice-card";
-    const title = document.createElement("strong");
-    title.textContent =
-      (pair.left.title || pair.left.id) + " + " + (pair.right.title || pair.right.id)
-      + " (" + pair.score + ")";
-    card.append(title);
-    const name = document.createElement("input");
-    name.type = "text";
-    name.placeholder = "Nombre unido";
-    const merge = document.createElement("button");
-    merge.type = "button";
-    merge.textContent = "Unir";
-    merge.addEventListener("click", async () => {
-      const status = document.querySelector("#voices-status");
-      status.textContent = "Uniendo...";
-      const result = await fetch("/api/voices/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          left: pair.left.id,
-          right: pair.right.id,
-          name: name.value,
-        }),
-      });
-      const body = await result.json().catch(() => ({}));
-      status.textContent = body.message || (result.ok ? "Unidas." : "Error.");
-      loadVoices();
-    });
-    card.append(name, merge);
-    root.append(card);
+  for (const voice of voices) {
+    root.append(similarProfileCard(voice));
   }
+}
+
+function similarPairCard(pair) {
+  const card = document.createElement("div");
+  card.className = "voice-card";
+  const title = document.createElement("strong");
+  title.textContent =
+    percent(pair.score) + " · " + voiceHeading(pair.left) + " y " + voiceHeading(pair.right);
+  card.append(title);
+  card.append(scoreBar(pair.score));
+  const columns = document.createElement("div");
+  columns.className = "similar-pair";
+  columns.append(similarSide(pair.left), similarSide(pair.right));
+  card.append(columns);
+  const row = document.createElement("div");
+  row.className = "voices-actions";
+  const name = document.createElement("input");
+  name.type = "text";
+  name.placeholder = "Nombre de la persona";
+  const leftLabel = cleanVoiceLabel(pair.left.label);
+  const rightLabel = cleanVoiceLabel(pair.right.label);
+  name.value = leftLabel || rightLabel;
+  const merge = document.createElement("button");
+  merge.type = "button";
+  merge.textContent = "Unir en un perfil";
+  const localStatus = document.createElement("p");
+  localStatus.className = "note";
+  merge.addEventListener("click", async () => {
+    if (!name.value.trim()) {
+      localStatus.textContent = "Escribí el nombre antes de unir.";
+      return;
+    }
+    merge.disabled = true;
+    localStatus.textContent = "Uniendo...";
+    const result = await fetch("/api/voices/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        left: pair.left.id,
+        right: pair.right.id,
+        name: name.value.trim(),
+      }),
+    });
+    const body = await result.json().catch(() => ({}));
+    if (!result.ok || body.ok === false) {
+      merge.disabled = false;
+      localStatus.textContent = body.message || "No se pudo unir.";
+      return;
+    }
+    document.querySelector("#voices-status").textContent =
+      body.message || "Unidas.";
+    loadVoices();
+  });
+  row.append(name, merge);
+  card.append(row, localStatus);
+  return card;
+}
+
+function similarProfileCard(voice) {
+  const card = document.createElement("div");
+  card.className = "voice-card";
+  const title = document.createElement("strong");
+  title.textContent = voiceHeading(voice);
+  card.append(title);
+  if (voice.clip) {
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = voice.clip;
+    card.append(audio);
+  }
+  const matches = voice.profiles || [];
+  if (!matches.length) {
+    const empty = document.createElement("p");
+    empty.className = "note";
+    empty.textContent = "No se parece a un perfil guardado.";
+    card.append(empty);
+    return card;
+  }
+  const list = document.createElement("ul");
+  for (const match of matches) {
+    const item = document.createElement("li");
+    item.textContent = match.name + " · " + percent(match.score);
+    list.append(item);
+  }
+  card.append(list);
+  return card;
+}
+
+function similarSide(voice) {
+  const block = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = voiceHeading(voice);
+  const where = document.createElement("p");
+  where.className = "note";
+  where.textContent = voice.sources || "";
+  block.append(title, where);
+  if (voice.clip) {
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = voice.clip;
+    block.append(audio);
+  } else {
+    const missing = document.createElement("p");
+    missing.className = "note";
+    missing.textContent = "Sin clip.";
+    block.append(missing);
+  }
+  return block;
+}
+
+function voiceHeading(voice) {
+  return (voice.id || "") + " · " + (voice.label || "sin nombre");
+}
+
+function cleanVoiceLabel(label) {
+  if (!label || label === "sin nombre") {
+    return "";
+  }
+  return label;
+}
+
+function percent(score) {
+  return Math.round((Number(score) || 0) * 100) + "%";
+}
+
+function scoreBar(score) {
+  const track = document.createElement("div");
+  track.className = "score-bar";
+  const fill = document.createElement("span");
+  fill.style.width = Math.max(0, Math.min(100, Math.round((Number(score) || 0) * 100))) + "%";
+  track.append(fill);
+  return track;
 }
 
 function renderProfiles(names) {

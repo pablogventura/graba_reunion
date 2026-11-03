@@ -127,11 +127,16 @@ def meeting_stamp(path: Path) -> str:
 
 
 def open_viewer(path: Path | None = None, *, clock: str = "") -> None:
-    """Abre el visor. Con path, en esa reunión; con clock, en esa frase si hay JSON."""
+    """Abre el visor de grabaciones. Con path, en esa reunión; con clock, en esa frase."""
     meeting_id = path.stem if path is not None else ""
     start = start_for_clock(path, clock) if path is not None and clock else None
     try:
-        command = view_command(graba_reunion_bin(), meeting_id=meeting_id, start=start)
+        command = view_command(
+            graba_reunion_bin(),
+            meeting_id=meeting_id,
+            start=start,
+            output_dir=default_output_dir(),
+        )
         subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
@@ -189,6 +194,7 @@ class MicIndicator:
         self.mp3: Path | None = None
         self.started_at: float | None = None
         self.stop_requested = False
+        self.restart_after_stop = False
         self.quitting = False
         self.paused = False
         self.cancel_requested = False
@@ -381,6 +387,15 @@ class MicIndicator:
         proc = self.record_proc
         if proc is None or proc.poll() is None:
             return
+        restart = self.restart_after_stop
+        self.restart_after_stop = False
+        try:
+            self._finish_record()
+        finally:
+            if restart:
+                self._start_followup()
+
+    def _finish_record(self) -> None:
         mp3 = self.mp3
         started = self.started_at
         cancelled = self.cancel_requested
@@ -602,6 +617,9 @@ class MicIndicator:
         self.menu.show_all()
 
     def _append_stop_and_cancel(self) -> None:
+        new_item = Gtk.MenuItem(label="Nueva reunión")
+        new_item.connect("activate", self._on_new_meeting)
+        self.menu.append(new_item)
         stop_item = Gtk.MenuItem(label="Detener")
         stop_item.connect("activate", self._on_stop)
         self.menu.append(stop_item)
@@ -691,6 +709,7 @@ class MicIndicator:
         if response != Gtk.ResponseType.OK or not self._record_alive():
             return
         self.cancel_requested = True
+        self.restart_after_stop = False
         if self.paused:
             self._save_pause()
             self._signal_tree(signal.SIGCONT)
@@ -883,11 +902,29 @@ class MicIndicator:
     def _on_open_transcript(self, _item: Gtk.MenuItem, path_text: str) -> None:
         open_viewer(Path(path_text))
 
+    def _on_new_meeting(self, *_args: object) -> None:
+        if not self._record_alive():
+            return
+        self.restart_after_stop = True
+        log_line("nueva reunión pedida")
+        self._stop_recording()
+        self._paint()
+
+    def _start_followup(self) -> None:
+        self.manual = not self.clients
+        self.state.phase = "recording"
+        self.state.arm_since = None
+        self.state.quiet_since = None
+        log_line("sigue con una grabación nueva")
+        self._start_recording()
+
     def _on_stop(self, *_args: object) -> None:
+        self.restart_after_stop = False
         self.stop_requested = True
 
     def _on_quit(self, *_args: object) -> None:
         self.quitting = True
+        self.restart_after_stop = False
         if self._record_alive():
             self.stop_requested = True
             return

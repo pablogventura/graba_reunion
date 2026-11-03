@@ -25,6 +25,9 @@ def test_minutes_prompt_asks_for_actions_and_keeps_existing_minutes() -> None:
         "2026-09-29 13:09:20",
         minutes="# Vieja\n\n- un punto",
     )
+    assert "# Minuta: tema concreto" in text
+    assert "## Participantes" in text
+    assert "## Datos" in text
     assert "Puntos de acción" in text
     assert "- [ ] tarea" in text
     assert "Corregila" in text

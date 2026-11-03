@@ -1,6 +1,12 @@
 {
   "title": "Reunión de prueba",
+  "schedule": "10:00 a 10:30",
+  "place": null,
+  "participants": ["Pablo", "Mica"],
+  "absentees": [],
+  "agenda": [],
   "summary": "Resumen breve.",
+  "next_meeting": null,
   "topics": ["audio"],
   "decisions": ["seguir"],
   "action_items": [{"task": "verificar mic", "assignee": null, "deadline": null}],

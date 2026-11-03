@@ -1,0 +1,13 @@
+[Nemo Action]
+Version=1.0
+Type=Application
+Encoding=UTF-8
+Name=Transcribir
+Comment=Transcribe el audio y deja el texto al lado del archivo
+Exec=graba-reunion transcribe -- %F
+Icon-Name=audio-x-generic
+Selection=any
+Mimetypes=audio/flac;audio/x-flac;audio/wav;audio/x-wav;audio/vnd.wave;audio/ogg;audio/x-vorbis+ogg;audio/opus;audio/x-opus+ogg;audio/mpeg;audio/mp4;audio/x-m4a;audio/aac;audio/x-hx-aac-adts;audio/x-ms-wma;audio/webm;audio/x-aiff;audio/aiff;video/mp4;video/x-matroska;video/quicktime;video/webm;video/x-msvideo;video/x-ms-wmv;video/3gpp;video/mpeg;video/ogg;
+Dependencies=ffmpeg;
+Terminal=true
+Quote=double

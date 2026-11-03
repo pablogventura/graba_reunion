@@ -54,10 +54,17 @@ def _format_minutes(data: dict[str, Any], *, language: str = "es") -> str:
     if locale == "es":
         title = "# Minuta de reunión"
         labels = {
+            "details": "Datos",
+            "schedule": "Horario",
+            "place": "Lugar o medio",
+            "participants": "Participantes",
+            "absentees": "Ausentes",
+            "agenda": "Orden del día",
             "summary": "Resumen",
             "topics": "Temas tratados",
             "decisions": "Decisiones",
             "actions": "Puntos de acción",
+            "next_meeting": "Próxima reunión",
             "notes": "Notas",
             "assignee": "responsable",
             "deadline": "plazo",
@@ -65,16 +72,27 @@ def _format_minutes(data: dict[str, Any], *, language: str = "es") -> str:
     else:
         title = "# Meeting minutes"
         labels = {
+            "details": "Details",
+            "schedule": "Time",
+            "place": "Place",
+            "participants": "Participants",
+            "absentees": "Absent",
+            "agenda": "Agenda",
             "summary": "Summary",
             "topics": "Topics",
             "decisions": "Decisions",
             "actions": "Action items",
+            "next_meeting": "Next meeting",
             "notes": "Notes",
             "assignee": "owner",
             "deadline": "due",
         }
 
     lines: list[str] = [title, ""]
+    _append_details(lines, data, labels)
+    _append_bullets(lines, labels["participants"], data.get("participants") or [])
+    _append_bullets(lines, labels["absentees"], data.get("absentees") or [])
+    _append_bullets(lines, labels["agenda"], data.get("agenda") or [])
 
     summary = str(data.get("summary", "")).strip()
     if summary:
@@ -117,11 +135,41 @@ def _format_minutes(data: dict[str, Any], *, language: str = "es") -> str:
                     lines.append(f"- [ ] {text}")
         lines.append("")
 
+    next_meeting = str(data.get("next_meeting") or "").strip()
+    if next_meeting:
+        lines.extend([f"## {labels['next_meeting']}", "", next_meeting, ""])
+
     notes = str(data.get("notes", "")).strip()
     if notes:
         lines.extend([f"## {labels['notes']}", "", notes, ""])
 
     return "\n".join(lines).strip()
+
+
+def _append_details(lines: list[str], data: dict[str, Any], labels: dict[str, str]) -> None:
+    details: list[str] = []
+    schedule = str(data.get("schedule") or "").strip()
+    place = str(data.get("place") or "").strip()
+    if schedule:
+        details.append(f"- {labels['schedule']}: {schedule}")
+    if place:
+        details.append(f"- {labels['place']}: {place}")
+    if not details:
+        return
+    lines.extend([f"## {labels['details']}", "", *details, ""])
+
+
+def _append_bullets(lines: list[str], heading: str, items: Any) -> None:
+    if isinstance(items, str):
+        items = [items]
+    if not isinstance(items, list):
+        return
+    cleaned = [str(item).strip() for item in items if str(item).strip() and str(item) != "None"]
+    if not cleaned:
+        return
+    lines.extend([f"## {heading}", ""])
+    lines.extend(f"- {item}" for item in cleaned)
+    lines.append("")
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:
@@ -139,25 +187,43 @@ def _system_prompt(language: str) -> str:
     locale = _minutes_locale(language)
     if locale == "es":
         return (
-            "Sos un asistente que resume reuniones en español. "
+            "Sos un asistente que arma minutas de reunión en español. "
             "Respondé únicamente con JSON válido, sin markdown ni texto extra. "
+            "No inventes gente, lugar, ausentes, responsables ni plazos. "
+            "Participantes: quien habla o se nombra como presente. "
+            "Si no hay nombre, usá la etiqueta SPEAKER_XX. "
             "Esquema: "
-            '{"title": "título breve (máx 80 caracteres)", '
+            '{"title": "tema concreto, máx 80 caracteres, no genérico", '
+            '"schedule": "inicio y fin, o null", '
+            '"place": "lugar o medio, o null", '
+            '"participants": ["nombre"], '
+            '"absentees": ["solo si se mencionan"], '
+            '"agenda": ["punto del orden del día, o vacío"], '
             '"summary": "párrafo resumen", '
-            '"topics": ["tema 1", "..."], '
-            '"decisions": ["decisión 1", "..."], '
+            '"topics": ["tema 1"], '
+            '"decisions": ["decisión 1"], '
             '"action_items": [{"task": "...", "assignee": null, "deadline": null}], '
+            '"next_meeting": "o null", '
             '"notes": "opcional"}'
         )
     return (
-        "You are an assistant that summarizes meetings in English. "
+        "You are an assistant that writes meeting minutes in English. "
         "Respond only with valid JSON, no markdown or extra text. "
+        "Do not invent people, place, absentees, owners, or deadlines. "
+        "Participants are people who speak or are named as present. "
+        "If there is no name, keep the SPEAKER_XX label. "
         "Schema: "
-        '{"title": "short title (max 80 chars)", '
+        '{"title": "specific subject, max 80 chars", '
+        '"schedule": "start and end, or null", '
+        '"place": "place or medium, or null", '
+        '"participants": ["name"], '
+        '"absentees": ["only if mentioned"], '
+        '"agenda": ["agenda item, or empty"], '
         '"summary": "summary paragraph", '
-        '"topics": ["topic 1", "..."], '
-        '"decisions": ["decision 1", "..."], '
+        '"topics": ["topic 1"], '
+        '"decisions": ["decision 1"], '
         '"action_items": [{"task": "...", "assignee": null, "deadline": null}], '
+        '"next_meeting": "or null", '
         '"notes": "optional"}'
     )
 

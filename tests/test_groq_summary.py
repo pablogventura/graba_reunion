@@ -33,6 +33,9 @@ def test_format_minutes_from_fixture() -> None:
     data = json.loads(raw)
     minutes = _format_minutes(data)
     assert "# Minuta de reunión" in minutes
+    assert "## Participantes" in minutes
+    assert "- Pablo" in minutes
+    assert "## Datos" in minutes
     assert "verificar mic" in minutes
 
 

@@ -11,8 +11,10 @@ from graba_reunion.commands.phrases_cmd import cmd_phrases
 from graba_reunion.commands.record import run_record_flow
 from graba_reunion.commands.search_cmd import cmd_search
 from graba_reunion.commands.setup_cmd import cmd_setup
+from graba_reunion.commands.transcribe_cmd import cmd_transcribe
 from graba_reunion.commands.voices_cmd import cmd_voices
 from graba_reunion.config import DEFAULT_GROQ_MODEL, load_settings
+from graba_reunion.media import is_media_path
 from graba_reunion.paths import default_output_dir
 from graba_reunion.viewer import cmd_view
 
@@ -26,10 +28,35 @@ SUBCOMMANDS = {
     "search",
     "phrases",
     "view",
+    "transcribe",
 }
 
 
-def parse_args() -> argparse.Namespace:
+def rewrite_media_argv(argv: list[str]) -> list[str]:
+    """Si los argumentos son archivos de media existentes, reescribe a `transcribe`."""
+    if not argv or argv[0] in SUBCOMMANDS:
+        return argv
+    tokens: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg in {"-d", "--output-dir"} and index + 1 < len(argv):
+            index += 2
+            continue
+        if arg.startswith("-"):
+            return argv
+        tokens.append(arg)
+        index += 1
+    if not tokens:
+        return argv
+    if all(Path(token).expanduser().is_file() and is_media_path(token) for token in tokens):
+        return ["transcribe", "--", *tokens]
+    return argv
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    rewritten = rewrite_media_argv(raw)
     parser = argparse.ArgumentParser(
         description=(
             "Graba reunión (mic + monitor) y transcribe. "
@@ -60,6 +87,12 @@ ejemplos:
       Volver a transcribir un MP3 y guardar el JSON de frases.
   graba-reunion view
       Abrir el visor de conversaciones en el navegador.
+  graba-reunion voices --web
+      Preparar voces y abrir el hub en la pestaña Voces.
+  graba-reunion audio.ogg
+      Igual que: graba-reunion transcribe audio.ogg (abre el visor al terminar).
+  graba-reunion transcribe audio.mp3 video.mp4
+      Transcribir archivos de audio o video que ya existen.
 
 Las opciones de grabación/transcripción funcionan con o sin el subcomando record.""",
     )
@@ -118,6 +151,11 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
         action="store_true",
         help="Guardar los nombres de nombres.txt como perfiles.",
     )
+    voices_parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Abrir una página para escuchar y nombrar solo las voces nuevas.",
+    )
     voices_parser.set_defaults(command="voices")
 
     search_parser = subparsers.add_parser("search", help="Buscar en las transcripciones.")
@@ -157,17 +195,34 @@ Las opciones de grabación/transcripción funcionan con o sin el subcomando reco
         default=None,
         help="Segundo del MP3 donde empieza el audio.",
     )
+    view_parser.add_argument(
+        "--tab",
+        default="",
+        help="Pestaña inicial del hub: conversations, search, voices o transcribe.",
+    )
     view_parser.set_defaults(command="view")
+
+    transcribe_parser = subparsers.add_parser(
+        "transcribe",
+        help="Transcribir archivos de audio o video que ya existen.",
+    )
+    transcribe_parser.add_argument(
+        "paths",
+        nargs="+",
+        type=Path,
+        help="Uno o más archivos. El texto queda al lado de cada uno.",
+    )
+    transcribe_parser.set_defaults(command="transcribe")
 
     record_parser = subparsers.add_parser("record", help="Grabar reunión.")
     _add_output_args(record_parser)
     _add_record_args(record_parser)
     record_parser.set_defaults(command="record")
 
-    if len(sys.argv) <= 1 or sys.argv[1] not in SUBCOMMANDS:
+    if not rewritten or rewritten[0] not in SUBCOMMANDS:
         _add_record_args(parser)
 
-    return parser.parse_args()
+    return parser.parse_args(rewritten)
 
 
 def _add_output_args(parser: argparse.ArgumentParser) -> None:
@@ -280,6 +335,7 @@ def main() -> int:
             output_dir,
             prepare_only=bool(getattr(args, "prepare", False)),
             apply_only=bool(getattr(args, "apply", False)),
+            web=bool(getattr(args, "web", False)),
         )
     if command == "search":
         return cmd_search(
@@ -292,7 +348,14 @@ def main() -> int:
     if command == "phrases":
         return cmd_phrases(output_dir, args.mp3)
     if command == "view":
-        return cmd_view(output_dir, meeting_id=args.id, start=args.t)
+        return cmd_view(
+            output_dir,
+            meeting_id=args.id,
+            start=args.t,
+            tab=getattr(args, "tab", "") or "",
+        )
+    if command == "transcribe":
+        return cmd_transcribe(list(args.paths))
 
     enrich_only = getattr(args, "enrich_only", None)
     use_groq = bool(getattr(args, "groq", False))

@@ -45,10 +45,26 @@ def test_catalog_lists_audio_text_and_minutes(tmp_path: Path) -> None:
     assert detail["phrases"]["phrases"][0]["start"] == 12.4
 
 
+def test_catalog_includes_a_transcribed_video(tmp_path: Path) -> None:
+    stem = "clase final"
+    (tmp_path / f"{stem}.txt").write_text("[00:00:01] [Ana]: hola\n", encoding="utf-8")
+    (tmp_path / f"{stem}.mp4").write_bytes(b"video")
+    catalog = meeting_catalog(tmp_path, prefix="reunion")
+    assert [item["id"] for item in catalog] == [stem]
+    assert catalog[0]["media_kind"] == "video"
+    detail = meeting_detail(tmp_path, stem, prefix="reunion")
+    assert detail is not None
+    assert detail["audio"] == "/media/clase%20final.mp4"
+    assert detail["text"].startswith("[00:00:01]")
+
+
 def test_media_path_stays_inside_the_recordings_dir(tmp_path: Path) -> None:
     audio = tmp_path / "reunion.mp3"
     audio.write_bytes(b"x")
+    video = tmp_path / "clase.mp4"
+    video.write_bytes(b"v")
     assert resolve_media(tmp_path, "reunion.mp3") == audio.resolve()
+    assert resolve_media(tmp_path, "clase.mp4") == video.resolve()
     assert resolve_media(tmp_path, "../secreto.mp3") is None
     assert resolve_media(tmp_path, "reunion.txt") is None
 
@@ -61,6 +77,18 @@ def test_view_command_and_url_carry_meeting_and_offset() -> None:
         "reunion_a",
         "--t",
         "12.400",
+    ]
+    assert view_command(
+        "graba-reunion",
+        meeting_id="reunion_a",
+        output_dir=Path("/datos/grabaciones"),
+    ) == [
+        "graba-reunion",
+        "view",
+        "-d",
+        "/datos/grabaciones",
+        "--id",
+        "reunion_a",
     ]
     assert viewer_url(8765, "reunion_a", 12.4) == "http://127.0.0.1:8765/?id=reunion_a&t=12.400"
     assert viewer_url(8765) == "http://127.0.0.1:8765/"

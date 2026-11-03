@@ -38,7 +38,7 @@ def transcribe_and_write_txt(
 ) -> int:
     if not mp3.is_file() or mp3.stat().st_size < min_mp3_bytes:
         print(
-            f"\nNo hay MP3 usable (falta archivo o < {min_mp3_bytes} bytes); "
+            f"\nNo hay archivo usable (falta o tiene < {min_mp3_bytes} bytes); "
             "se omite la transcripción.",
             file=sys.stderr,
         )
@@ -176,7 +176,7 @@ def run_record_flow(
     if transcribe_only is not None:
         mp3 = transcribe_only.expanduser().resolve()
         if not mp3.is_file():
-            print(f"No existe el MP3: {mp3}", file=sys.stderr)
+            print(f"No existe el archivo: {mp3}", file=sys.stderr)
             return 1
         if no_diarize:
             error = validate_faster_whisper_prereqs()

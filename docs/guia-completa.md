@@ -357,18 +357,62 @@ graba-reunion search --participant Pablo
 
 `--word` es coincidencia literal, sin distinguir mayúsculas. `--participant` se puede combinar con tema o palabra. Sin texto, lista intervenciones de esa persona. `--json` imprime los resultados para el indicador.
 
-### `view` y `phrases`
+### `view` (hub web) y `phrases`
 
-`graba-reunion view` abre el visor en el navegador. Escucha solo en `127.0.0.1`. La página lista las reuniones, reproduce el MP3 y muestra la conversación. Un clic en una frase salta a ese segundo. Texto y minuta se leen en la misma página. Tres botones arman un texto (minuta con acciones, prompt para Cursor, o voces sin nombre), lo copian y abren ChatGPT en otra pestaña para pegarlo.
+`graba-reunion view` abre el hub en el navegador (`127.0.0.1`). La barra tiene **Conversaciones**, **Buscar**, **Voces** y **Transcribir**.
 
-Cada transcripción con diarización deja `{nombre}.phrases.json` al lado del MP3. Las reuniones anteriores no se regeneran solas.
+En una reunión: conversación sincronizada con el audio/video, texto, minuta editable, nombrar `SPEAKER_XX`, copiar la charla cruda, prompts para ChatGPT, bajar `.txt` / minuta, regenerar frases y generar minuta con Groq (hace falta `GROQ_API_KEY`).
+
+**Voces** usa el `review.json` preparado por `graba-reunion voices` (GPU). Si no está, la página lo indica. `graba-reunion voices --web` prepara y abre el hub en la pestaña Voces (ya no levanta el servidor aparte en el puerto 8775).
+
+Siguen en CLI: `setup`, `check-deps`, grabar e indicador de mic.
 
 ```bash
 graba-reunion view
+graba-reunion view --tab voices
 graba-reunion phrases archivo.mp3
 ```
 
-`phrases` vuelve a transcribir ese MP3 y escribe el JSON. No recorre la carpeta.
+`phrases` vuelve a transcribir ese MP3 y escribe el JSON. No recorre la carpeta. Desde el hub, **Regenerar frases** hace lo mismo sobre el media de la reunión abierta.
+
+### Doble clic en ogg/opus
+
+Para que un doble clic en `.ogg` / `.opus` dispare `graba-reunion` (transcribe y abre el visor):
+
+```bash
+mkdir -p ~/.local/share/applications
+cp scripts/desktop/graba-reunion-transcribe.desktop ~/.local/share/applications/
+update-desktop-database ~/.local/share/applications/
+xdg-mime default graba-reunion-transcribe.desktop audio/ogg
+xdg-mime default graba-reunion-transcribe.desktop audio/opus
+```
+
+También podés pasar el archivo al CLI sin subcomando: `graba-reunion nota.ogg` equivale a `graba-reunion transcribe nota.ogg`.
+
+### Transcribir desde Nemo o Nautilus
+
+En el menú contextual de un audio o un video aparece **Transcribir**. Pasa el archivo a `graba-reunion transcribe` y deja el `.txt` (y el `.phrases.json`, si hay diarización) al lado. Sirve para varios archivos a la vez. Abre una terminal mientras trabaja y, al terminar, abre el visor en esa conversación.
+
+```bash
+graba-reunion transcribe audio.mp3 video.mp4
+```
+
+Nemo usa `scripts/nemo/graba-reunion-transcribe.nemo_action`:
+
+```bash
+mkdir -p ~/.local/share/nemo/actions
+cp scripts/nemo/graba-reunion-transcribe.nemo_action ~/.local/share/nemo/actions/
+```
+
+Si `graba-reunion` no está en el PATH de Nemo, el `Exec` de esa copia tiene que usar la ruta absoluta. Después hay que cerrar y volver a abrir Nemo.
+
+Nautilus usa `scripts/nautilus/graba-reunion-transcribe.py` (hace falta `python3-nautilus`):
+
+```bash
+mkdir -p ~/.local/share/nautilus-python/extensions
+cp scripts/nautilus/graba-reunion-transcribe.py ~/.local/share/nautilus-python/extensions/
+/usr/bin/nautilus -q
+```
 
 ---
 
@@ -546,7 +590,11 @@ Workaround interno: WhisperX corre con cwd en el temp del sistema para evitar un
 graba-reunion voices
 # editar ~/.local/share/graba-reunion/voices/nombres.txt
 graba-reunion voices --apply
+
+graba-reunion voices --web
 ```
+
+`graba-reunion voices --web` abre una página en el navegador, solo con las voces que todavía no coinciden con un perfil ni con una muestra ignorada. Al lado de cada clip se escribe el nombre. Si la persona ya existe, el mismo nombre suma esa muestra a su perfil. Ignorar (o `-`) descarta ruido. Vacío deja esa voz para después. En la misma página, "Ver parecidos entre voces" muestra qué grupos se parecen entre sí y a qué perfil guardado se acerca cada uno. A partir de 70% se toma como la misma voz. Si dos grupos son la misma persona, "Unir" los junta en un solo perfil con el nombre que escribas.
 
 A partir de ahí, cada transcripción nueva compara la voz con esos perfiles. No reescribe los `.txt` viejos. Una voz desconocida, o una toma muy distinta, sigue como `SPEAKER_XX`.
 
@@ -729,7 +777,7 @@ PipeWire ve el proceso que abre el micrófono, no el nombre del sitio.
 
 El menú lista la app y el dispositivo (por ejemplo `Discord - HyperX...`), y debajo los nombres de las transcripciones (`.txt`) de las últimas 24 horas. Un clic en un nombre abre el visor en esa reunión. **Ver conversaciones** abre el listado.
 
-Con el micrófono libre, **Grabar** empieza enseguida, sin esperar los 3 segundos. Si nadie más usa el micrófono, la toma se corta sola tras 10 minutos de silencio en el audio. Si después otra app abre el micrófono, al colgar vuelve la regla de los 10 segundos. Durante la grabación aparecen **Pausar**, **Detener** y **Cancelar**. Pausar manda SIGSTOP al proceso y a ffmpeg: el MP3 sigue siendo el mismo y el silencio no corta la toma. Si la llamada termina mientras está en pausa, avisa una vez y no cierra solo. Reanudar manda SIGCONT y el temporizador de silencio vuelve a cero. Detener (también **Salir**) reanuda si hacía falta y manda SIGTERM; después vale la regla de los 60 segundos. Cancelar abre un cuadro de confirmación: si aceptás, corta, borra el MP3 y no transcribe.
+Con el micrófono libre, **Grabar** empieza enseguida, sin esperar los 3 segundos. Si nadie más usa el micrófono, la toma se corta sola tras 10 minutos de silencio en el audio. Si después otra app abre el micrófono, al colgar vuelve la regla de los 10 segundos. Durante la grabación aparecen **Pausar**, **Nueva reunión**, **Detener** y **Cancelar**. **Nueva reunión** corta la toma actual (vale la regla de los 60 segundos) y arranca otra enseguida, sin esperar los 3 segundos, para separar dos reuniones seguidas. Pausar manda SIGSTOP al proceso y a ffmpeg: el MP3 sigue siendo el mismo y el silencio no corta la toma. Si la llamada termina mientras está en pausa, avisa una vez y no cierra solo. Reanudar manda SIGCONT y el temporizador de silencio vuelve a cero. Detener (también **Salir**) reanuda si hacía falta y manda SIGTERM; después vale la regla de los 60 segundos. Cancelar abre un cuadro de confirmación: si aceptás, corta, borra el MP3 y no transcribe.
 
 **Buscar** abre un diálogo (tema, palabra y participante opcional). La búsqueda corre en segundo plano con `graba-reunion search --json`. Un clic en un resultado abre el visor. Si esa reunión ya tiene `.phrases.json`, el audio arranca en la frase.
 

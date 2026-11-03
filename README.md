@@ -31,7 +31,7 @@ Config: `~/.config/graba-reunion/.env`
 |------|---------|----------|
 | Grabar mic + monitor (ffmpeg) | sí | `--skip-transcribe` solo audio |
 | Transcribir con speakers (WhisperX) | sí | `--no-diarize` (faster-whisper) |
-| Nombres en vez de `SPEAKER_00` | no | `graba-reunion voices` |
+| Nombres en vez de `SPEAKER_00` | no | `graba-reunion voices --web` |
 | Minuta (Groq) | no | `--groq` / `--enrich-only` |
 
 ## Requisitos
@@ -60,6 +60,9 @@ graba-reunion search --word "acta"
 graba-reunion search --participant Pablo "presupuesto"
 graba-reunion phrases archivo.mp3
 graba-reunion view
+graba-reunion view --tab voices
+graba-reunion nota.ogg             # atajo = transcribe + abre el visor
+graba-reunion transcribe audio.mp3 video.mp4
 graba-reunion setup
 graba-reunion setup --install-deps -y
 graba-reunion check-deps
@@ -86,9 +89,9 @@ Variables clave:
 
 ## Indicador automático
 
-`graba-reunion-mic` graba la reunión cuando otra app abre el micrófono (Discord, Meet, Teams, etc.). El icono se ve en uso solo mientras está grabando; si no, queda como micrófono libre aunque otra app lo tenga abierto. Espera 3 segundos para arrancar y 10 para cortar al colgar. Si la toma dura menos de un minuto, borra el audio. Si dura más, transcribe sin Groq. El menú del icono lista las transcripciones de las últimas 24 horas. Un clic en el aviso, en el nombre o en un resultado de búsqueda abre el visor en esa reunión. Desde ahí se lee el texto o la minuta. **Ver conversaciones** abre el listado. `graba-reunion view` hace lo mismo. `graba-reunion phrases archivo.mp3` regenera los tiempos de una grabación ya hecha.
+`graba-reunion-mic` graba la reunión cuando otra app abre el micrófono (Discord, Meet, Teams, etc.). El icono se ve en uso solo mientras está grabando; si no, queda como micrófono libre aunque otra app lo tenga abierto. Espera 3 segundos para arrancar y 10 para cortar al colgar. Si la toma dura menos de un minuto, borra el audio. Si dura más, transcribe sin Groq. El menú del icono lista las transcripciones de las últimas 24 horas. Un clic en el aviso, en el nombre o en un resultado de búsqueda abre el visor en esa reunión. Desde ahí se lee el texto o la minuta. **Ver conversaciones** abre el listado. `graba-reunion view` abre el hub web (conversaciones, buscar, voces, transcribir). `graba-reunion phrases archivo.mp3` regenera los tiempos de una grabación ya hecha.
 
-Con el micrófono libre, **Grabar** arranca una toma a mano. Si nadie más usa el micrófono, se corta sola tras 10 minutos de silencio en el audio. Si otra app lo abre y lo suelta, vuelve el corte a los 10 segundos. Mientras graba: **Pausar** congela el audio (el silencio no corta la toma), **Detener** aplica la regla de duración y **Cancelar** abre un cuadro para confirmar antes de borrar el MP3. **Salir** equivale a Detener. **Buscar** abre un diálogo de tema, palabra o participante.
+Con el micrófono libre, **Grabar** arranca una toma a mano. Si nadie más usa el micrófono, se corta sola tras 10 minutos de silencio en el audio. Si otra app lo abre y lo suelta, vuelve el corte a los 10 segundos. Mientras graba: **Pausar** congela el audio (el silencio no corta la toma), **Nueva reunión** cierra la toma y abre otra al instante, **Detener** aplica la regla de duración y **Cancelar** abre un cuadro para confirmar antes de borrar el MP3. **Salir** equivale a Detener. **Buscar** abre un diálogo de tema, palabra o participante.
 
 Arranca con la sesión gráfica (`~/.config/autostart/graba-reunion-mic.desktop`). Si quedó un MP3 sin transcribir (corte de luz, cierre brusco), al volver lo transcribe y avisa con una notificación de GNOME. Log en `~/.local/share/graba-reunion/mic-indicator.log`.
 

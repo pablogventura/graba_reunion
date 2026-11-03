@@ -96,7 +96,10 @@ def cosine_similarity(
     a_values = normalize(left)
     b_values = normalize(right)
     length = min(len(a_values), len(b_values))
-    return sum(a_values[index] * b_values[index] for index in range(length))
+    score = sum(a_values[index] * b_values[index] for index in range(length))
+    if not math.isfinite(score):
+        return 0.0
+    return score
 
 
 def cluster_tracks(
@@ -112,7 +115,7 @@ def cluster_tracks(
         for left_index in range(len(groups)):
             for right_index in range(left_index + 1, len(groups)):
                 score = _average_similarity(groups[left_index], groups[right_index])
-                if score < threshold:
+                if not math.isfinite(score) or score < threshold:
                     continue
                 if best_score is None or score > best_score:
                     best_score = score
@@ -243,6 +246,133 @@ def save_voice_bank(bank: VoiceBank, path: Path | None = None) -> Path:
     }
     bank_path.write_text(json.dumps(payload), encoding="utf-8")
     return bank_path
+
+
+def best_similarity(
+    left: tuple[tuple[float, ...], ...] | list[tuple[float, ...]],
+    right: tuple[tuple[float, ...], ...] | list[tuple[float, ...]],
+) -> float:
+    """Mayor parecido entre dos conjuntos de embeddings. 0 si no hay pares."""
+    best = 0.0
+    found = False
+    for left_vector in left:
+        for right_vector in right:
+            score = cosine_similarity(left_vector, right_vector)
+            if not found or score > best:
+                best = score
+                found = True
+    return best if found else 0.0
+
+
+def voice_pair_scores(clusters: list[VoiceCluster]) -> list[tuple[int, int, float]]:
+    scored: list[tuple[int, int, float]] = []
+    for index, left in enumerate(clusters):
+        left_vectors = [track.embedding for track in left.tracks]
+        for right in clusters[index + 1 :]:
+            score = best_similarity(left_vectors, [track.embedding for track in right.tracks])
+            scored.append((left.cluster_id, right.cluster_id, score))
+    scored.sort(key=lambda item: item[2], reverse=True)
+    return scored
+
+
+def profile_match_scores(cluster: VoiceCluster, bank: VoiceBank) -> list[tuple[str, float]]:
+    vectors = [track.embedding for track in cluster.tracks]
+    scored = [
+        (profile.name, best_similarity(vectors, profile.embeddings)) for profile in bank.profiles
+    ]
+    scored.sort(key=lambda item: item[1], reverse=True)
+    return scored
+
+
+def cluster_display_name(cluster: VoiceCluster, bank: VoiceBank) -> str | None:
+    names = [name for track in cluster.tracks if (name := bank.match(track.embedding))]
+    if not names:
+        return None
+    return max(set(names), key=names.count)
+
+
+def is_new_voice(cluster: VoiceCluster, bank: VoiceBank) -> bool:
+    """True si ningún tramo coincide con un perfil ni con una voz ignorada."""
+    if any(bank.match(track.embedding) for track in cluster.tracks):
+        return False
+    return any(not matches_rejected(bank, track.embedding) for track in cluster.tracks)
+
+
+def matches_rejected(bank: VoiceBank, embedding: list[float] | tuple[float, ...]) -> bool:
+    return any(
+        cosine_similarity(embedding, stored) >= bank.threshold for stored in bank.rejected
+    )
+
+
+def without_embeddings(bank: VoiceBank, vectors: list[tuple[float, ...]]) -> VoiceBank:
+    """Saca embeddings que pasan a otro perfil, para que no queden en dos nombres."""
+    drop = set(vectors)
+    profiles = []
+    for profile in bank.profiles:
+        kept = tuple(vector for vector in profile.embeddings if vector not in drop)
+        if kept:
+            profiles.append(VoiceProfile(name=profile.name, embeddings=kept))
+    rejected = tuple(vector for vector in bank.rejected if vector not in drop)
+    return VoiceBank(threshold=bank.threshold, profiles=tuple(profiles), rejected=rejected)
+
+
+def merge_voice_banks(base: VoiceBank, extra: VoiceBank) -> VoiceBank:
+    grouped: dict[str, list[tuple[float, ...]]] = {}
+    for profile in (*base.profiles, *extra.profiles):
+        bucket = grouped.setdefault(profile.name, [])
+        for vector in profile.embeddings:
+            if vector not in bucket:
+                bucket.append(vector)
+    rejected = list(base.rejected)
+    for vector in extra.rejected:
+        if vector not in rejected:
+            rejected.append(vector)
+    profiles = tuple(
+        VoiceProfile(name=name, embeddings=tuple(vectors))
+        for name, vectors in sorted(grouped.items())
+        if vectors
+    )
+    return VoiceBank(
+        threshold=base.threshold,
+        profiles=profiles,
+        rejected=tuple(rejected),
+    )
+
+
+def patch_names_file(names: dict[int, str], path: Path | None = None) -> None:
+    """Escribe en nombres.txt solo los id que vienen con texto."""
+    destination = path or names_path()
+    updates = {cluster_id: name for cluster_id, name in names.items() if name.strip()}
+    if not updates:
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    existing = destination.read_text(encoding="utf-8") if destination.is_file() else ""
+    lines = existing.splitlines()
+    seen: set[int] = set()
+    rewritten: list[str] = []
+    for line in lines:
+        cluster_id = _names_line_id(line)
+        if cluster_id is None or cluster_id not in updates:
+            rewritten.append(line)
+            continue
+        rewritten.append(f"{cluster_id}={updates[cluster_id]}")
+        seen.add(cluster_id)
+    for cluster_id, name in sorted(updates.items()):
+        if cluster_id not in seen:
+            if rewritten and rewritten[-1] != "":
+                rewritten.append("")
+            rewritten.append(f"{cluster_id}={name}")
+    destination.write_text("\n".join(rewritten).rstrip() + "\n", encoding="utf-8")
+
+
+def _names_line_id(line: str) -> int | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    cluster_id_text, _, _name = stripped.partition("=")
+    if not cluster_id_text.strip().isdigit():
+        return None
+    return int(cluster_id_text.strip())
 
 
 def speaker_names(payload: dict, bank: VoiceBank) -> dict[str, str]:

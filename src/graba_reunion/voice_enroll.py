@@ -58,6 +58,12 @@ def prepare_review(mp3_paths: list[Path], *, device: str, token: str) -> list[Vo
     return with_clips
 
 
+def save_review(clusters: list[VoiceCluster], path: Path | None = None) -> None:
+    review_path = path or (voices_dir() / "review.json")
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    review_path.write_text(json.dumps(_review_payload(clusters)), encoding="utf-8")
+
+
 def load_review(path: Path | None = None) -> list[VoiceCluster]:
     review_path = path or (voices_dir() / "review.json")
     payload = json.loads(review_path.read_text(encoding="utf-8"))

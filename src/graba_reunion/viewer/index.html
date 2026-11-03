@@ -3,38 +3,111 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Conversaciones</title>
+  <title>graba-reunion</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <div class="layout">
-    <aside class="list-pane">
-      <h1>Conversaciones</h1>
-      <ul id="meetings"></ul>
-    </aside>
-    <main>
-      <header class="meeting-head">
-        <h2 id="title">Elegí una reunión</h2>
-        <p id="when"></p>
-        <div class="prompts">
-          <button type="button" data-prompt="minutes" disabled>Minuta con acciones</button>
-          <button type="button" data-prompt="cursor" disabled>Prompt para Cursor</button>
-          <button type="button" data-prompt="speakers" disabled>Voces sin nombre</button>
-        </div>
-        <p id="prompt-status" class="note" hidden></p>
-        <textarea id="prompt-fallback" hidden></textarea>
-        <audio id="player" controls preload="metadata"></audio>
-      </header>
-      <nav class="tabs">
-        <button type="button" data-tab="conversation">Conversación</button>
-        <button type="button" data-tab="text">Texto</button>
-        <button type="button" data-tab="minutes" hidden>Minuta</button>
+  <header class="hub-nav">
+    <strong class="brand">graba-reunion</strong>
+    <nav class="hub-tabs">
+      <button type="button" data-hub="conversations" class="active">Conversaciones</button>
+      <button type="button" data-hub="search">Buscar</button>
+      <button type="button" data-hub="voices">Voces</button>
+      <button type="button" data-hub="transcribe">Transcribir</button>
+    </nav>
+  </header>
+
+  <section id="panel-conversations" class="hub-panel">
+    <div class="layout">
+      <aside class="list-pane">
+        <h1>Conversaciones</h1>
+        <ul id="meetings"></ul>
+      </aside>
+      <main>
+        <header class="meeting-head">
+          <h2 id="title">Elegí una reunión</h2>
+          <p id="when"></p>
+          <div class="prompts">
+            <button type="button" data-copy="transcript" disabled>Copiar charla</button>
+            <button type="button" data-prompt="minutes" disabled>Minuta con acciones</button>
+            <button type="button" data-prompt="cursor" disabled>Prompt para Cursor</button>
+            <button type="button" data-prompt="speakers" disabled>Voces sin nombre</button>
+          </div>
+          <div class="meeting-actions">
+            <button type="button" id="btn-download-txt" disabled>Bajar txt</button>
+            <button type="button" id="btn-download-md" disabled>Bajar minuta</button>
+            <button type="button" id="btn-phrases" disabled>Regenerar frases</button>
+            <button type="button" id="btn-groq" disabled>Generar con Groq</button>
+          </div>
+          <p id="prompt-status" class="note" hidden></p>
+          <textarea id="prompt-fallback" hidden></textarea>
+          <audio id="player" controls preload="metadata"></audio>
+          <video id="video-player" controls preload="metadata" hidden></video>
+        </header>
+        <nav class="tabs">
+          <button type="button" data-tab="conversation">Conversación</button>
+          <button type="button" data-tab="text">Texto</button>
+          <button type="button" data-tab="minutes">Minuta</button>
+          <button type="button" data-tab="speakers">Voces de la reunión</button>
+        </nav>
+        <section id="conversation"></section>
+        <section id="text" hidden></section>
+        <section id="minutes" hidden>
+          <div id="minutes-view"></div>
+          <label class="minutes-edit-label" for="minutes-edit">Editar o pegar minuta (markdown)</label>
+          <textarea id="minutes-edit" rows="12" placeholder="# Título&#10;&#10;- punto"></textarea>
+          <button type="button" id="btn-save-minutes" disabled>Guardar minuta</button>
+        </section>
+        <section id="speakers" hidden>
+          <p class="note">Poné un nombre a cada SPEAKER_XX. Se reescribe el txt y las frases.</p>
+          <div id="speaker-form"></div>
+          <button type="button" id="btn-save-speakers" disabled>Guardar nombres</button>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <section id="panel-search" class="hub-panel" hidden>
+    <div class="hub-page">
+      <h1>Buscar</h1>
+      <form id="search-form" class="search-form">
+        <label>Tema <input type="text" id="search-q" name="q" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" id="search-word"> Palabra literal</label>
+        <label>Participante <input type="text" id="search-participant" autocomplete="off"></label>
+        <button type="submit">Buscar</button>
+      </form>
+      <p id="search-status" class="note"></p>
+      <ul id="search-hits"></ul>
+    </div>
+  </section>
+
+  <section id="panel-voices" class="hub-panel" hidden>
+    <div class="hub-page">
+      <h1>Voces</h1>
+      <p id="voices-status" class="note"></p>
+      <nav class="tabs voices-subtabs">
+        <button type="button" data-voices-tab="new" class="active">Nuevas</button>
+        <button type="button" data-voices-tab="similar">Parecidos</button>
+        <button type="button" data-voices-tab="profiles">Perfiles</button>
       </nav>
-      <section id="conversation"></section>
-      <section id="text" hidden></section>
-      <section id="minutes" hidden></section>
-    </main>
-  </div>
+      <div id="voices-new"></div>
+      <div id="voices-similar" hidden></div>
+      <div id="voices-profiles" hidden></div>
+    </div>
+  </section>
+
+  <section id="panel-transcribe" class="hub-panel" hidden>
+    <div class="hub-page">
+      <h1>Transcribir</h1>
+      <p class="note">Subí audio o video. El texto queda en la carpeta del visor.</p>
+      <form id="transcribe-form" class="transcribe-form">
+        <input type="file" id="transcribe-files" accept="audio/*,video/*" multiple>
+        <button type="submit">Transcribir</button>
+      </form>
+      <p id="transcribe-status" class="note"></p>
+    </div>
+  </section>
+
   <script src="/app.js"></script>
 </body>
 </html>

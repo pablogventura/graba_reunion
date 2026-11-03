@@ -6,6 +6,7 @@ from pathlib import Path
 
 from graba_reunion.config import load_settings
 from graba_reunion.transcription.whisperx import validate_diarization_prereqs
+from graba_reunion.viewer import cmd_view
 from graba_reunion.voice_enroll import load_review, prepare_review
 from graba_reunion.voices import (
     bank_from_names,
@@ -17,7 +18,16 @@ from graba_reunion.voices import (
 )
 
 
-def cmd_voices(output_dir: Path, *, prepare_only: bool, apply_only: bool) -> int:
+def cmd_voices(
+    output_dir: Path,
+    *,
+    prepare_only: bool,
+    apply_only: bool,
+    web: bool = False,
+) -> int:
+    if web and (prepare_only or apply_only):
+        print("Usá --web solo, sin --prepare ni --apply.", file=sys.stderr)
+        return 1
     if apply_only:
         return _apply_names()
     error = validate_diarization_prereqs()
@@ -25,6 +35,11 @@ def cmd_voices(output_dir: Path, *, prepare_only: bool, apply_only: bool) -> int
         print(error, file=sys.stderr)
         return 1
     mp3_paths = sorted(path for path in output_dir.glob("*.mp3") if path.is_file())
+    busy = _open_mp3s(output_dir)
+    if busy:
+        names = ", ".join(path.name for path in sorted(busy))
+        print(f"Dejo afuera la grabación en curso: {names}")
+        mp3_paths = [path for path in mp3_paths if path.resolve() not in busy]
     if not mp3_paths:
         print(f"No hay MP3 en {output_dir}", file=sys.stderr)
         return 1
@@ -39,6 +54,8 @@ def cmd_voices(output_dir: Path, *, prepare_only: bool, apply_only: bool) -> int
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(render_names_file(clusters), encoding="utf-8")
     print(f"Clips y lista: {destination}")
+    if web:
+        return cmd_view(output_dir, tab="voices")
     if prepare_only or not sys.stdin.isatty():
         print("Completá el nombre en cada línea `N=` y después: graba-reunion voices --apply")
         return 0
@@ -50,6 +67,30 @@ def cmd_voices(output_dir: Path, *, prepare_only: bool, apply_only: bool) -> int
     path = save_voice_bank(bank)
     _print_saved(bank, path)
     return 0
+
+
+def _open_mp3s(directory: Path) -> set[Path]:
+    """MP3 de esa carpeta que otro proceso tiene abiertos."""
+    root = directory.resolve()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return set()
+    found: set[Path] = set()
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            descriptors = list((entry / "fd").iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            try:
+                target = descriptor.resolve(strict=True)
+            except OSError:
+                continue
+            if target.parent == root and target.suffix.lower() == ".mp3":
+                found.add(target)
+    return found
 
 
 def _apply_names() -> int:

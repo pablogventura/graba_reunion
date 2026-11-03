@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=graba-reunion transcribe
+Comment=Transcribe audio ogg/opus and open the conversation viewer
+Exec=graba-reunion %F
+Terminal=true
+MimeType=audio/ogg;audio/opus;
+Categories=AudioVideo;Audio;Utility;
+NoDisplay=false

@@ -9,10 +9,61 @@
 
 body { margin: 0; }
 
+.hub-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 10px 16px;
+  background: #e7e1d4;
+  border-bottom: 1px solid #d5cdbc;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.brand { font-size: 1rem; }
+
+.hub-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hub-tabs button,
+.meeting-actions button,
+.search-form button,
+.transcribe-form button,
+#btn-save-minutes,
+#btn-save-speakers,
+.voices-actions button {
+  border: 1px solid #d5cdbc;
+  background: #fffdf8;
+  color: inherit;
+  font: inherit;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.hub-tabs button.active {
+  background: #1c1915;
+  color: #f4f0e6;
+  border-color: #1c1915;
+}
+
+.hub-panel[hidden] { display: none; }
+
+.hub-page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 280px 1fr;
-  min-height: 100vh;
+  min-height: calc(100vh - 52px);
 }
 
 .list-pane {
@@ -26,13 +77,15 @@ body { margin: 0; }
   font-size: 1.05rem;
 }
 
-#meetings {
+#meetings,
+#search-hits {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-#meetings button {
+#meetings button,
+#search-hits button {
   width: 100%;
   text-align: left;
   border: 0;
@@ -45,17 +98,21 @@ body { margin: 0; }
 }
 
 #meetings button strong,
-#meetings button span {
+#meetings button span,
+#search-hits button strong,
+#search-hits button span {
   display: block;
 }
 
-#meetings button span {
+#meetings button span,
+#search-hits button span {
   color: #5c564c;
   font-size: 0.85rem;
 }
 
 #meetings button.active,
-#meetings button:hover {
+#meetings button:hover,
+#search-hits button:hover {
   background: #f4f0e6;
 }
 
@@ -63,7 +120,7 @@ main { padding: 8px 28px 48px; }
 
 .meeting-head {
   position: sticky;
-  top: 0;
+  top: 52px;
   z-index: 2;
   background: #f4f0e6;
   padding: 12px 0 8px;
@@ -73,12 +130,23 @@ main { padding: 8px 28px 48px; }
 
 .meeting-head p { margin: 0 0 10px; color: #5c564c; }
 
-audio { width: 100%; }
+audio,
+video { width: 100%; }
 
-.prompts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.prompts,
+.meeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
 
 .prompts button,
-#prompt-fallback {
+#prompt-fallback,
+#minutes-edit,
+.speaker-row input,
+.search-form input[type="text"],
+.transcribe-form input {
   border: 1px solid #d5cdbc;
   background: #fffdf8;
   color: inherit;
@@ -91,14 +159,18 @@ audio { width: 100%; }
   cursor: pointer;
 }
 
-.prompts button:disabled {
+.prompts button:disabled,
+.meeting-actions button:disabled,
+#btn-save-minutes:disabled,
+#btn-save-speakers:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
 #prompt-status { margin: 0 0 8px; }
 
-#prompt-fallback {
+#prompt-fallback,
+#minutes-edit {
   display: block;
   width: 100%;
   min-height: 8rem;
@@ -108,7 +180,13 @@ audio { width: 100%; }
 
 #prompt-fallback[hidden] { display: none; }
 
-.tabs { display: flex; gap: 8px; margin: 8px 0 16px; }
+.minutes-edit-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 0.95rem;
+}
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
 
 .tabs button {
   border: 1px solid #d5cdbc;
@@ -177,7 +255,62 @@ audio { width: 100%; }
 
 .note { color: #5c564c; }
 
+.search-form,
+.transcribe-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 0 0 16px;
+}
+
+.search-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.search-form label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.search-form input[type="text"] {
+  min-width: 14rem;
+  padding: 6px 8px;
+}
+
+#search-hits li { margin: 0 0 8px; }
+
+.speaker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 10px;
+}
+
+.speaker-row code { min-width: 7rem; }
+
+.speaker-row input { padding: 6px 8px; min-width: 12rem; }
+
+.voice-card {
+  border: 1px solid #d5cdbc;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 0 0 12px;
+  background: #fffdf8;
+}
+
+.voice-card audio { margin: 8px 0; }
+
+.voices-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; }
   .list-pane { border-right: 0; border-bottom: 1px solid #d5cdbc; }
+  .meeting-head { top: 0; }
 }

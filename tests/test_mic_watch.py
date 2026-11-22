@@ -4,16 +4,23 @@ import subprocess
 from pathlib import Path
 
 from graba_reunion.mic_watch import (
+    SHARED_LATCHED,
+    CaptureClient,
     WatchState,
     advance_manual_silence,
     clear_recording_pending,
     descendant_pids,
     file_trailing_is_silent,
+    format_shared_apps,
     mark_recording_pending,
+    mark_transcription_failed,
     parse_capture_clients,
     recent_transcripts,
+    recent_transcription_failure,
     recording_decision,
+    shared_mic_transition,
     tick,
+    unique_capture_apps,
     unfinished_recordings,
 )
 
@@ -262,6 +269,17 @@ def test_unfinished_drops_marker_if_mp3_missing(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / "pending" / f"{mp3.stem}.path").exists()
 
 
+def test_unfinished_skips_recent_failures(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("graba_reunion.mic_watch.data_dir", lambda: tmp_path)
+    mp3 = tmp_path / "reunion_fail.mp3"
+    mp3.write_bytes(b"x")
+    mark_recording_pending(mp3)
+    mark_transcription_failed(mp3, "GPU sin memoria (CUDA OOM)")
+    assert unfinished_recordings() == [mp3.resolve()]
+    assert unfinished_recordings(skip_recent_failures=True) == []
+    assert recent_transcription_failure(mp3) == "GPU sin memoria (CUDA OOM)"
+
+
 def test_recent_transcripts_last_day(tmp_path) -> None:
     import os
 
@@ -287,3 +305,169 @@ def test_descendant_pids_includes_child() -> None:
     finally:
         child.terminate()
         child.wait(timeout=2)
+
+
+def _client(app: str, pid: int = 1) -> CaptureClient:
+    return CaptureClient(app=app, pid=pid, device="HyperX", flatpak=False)
+
+
+def test_unique_capture_apps_dedupes_casefold() -> None:
+    clients = [
+        _client("Discord", 1),
+        _client("discord", 2),
+        _client("firefox", 3),
+        _client("Discord", 4),
+    ]
+    assert unique_capture_apps(clients) == ["Discord", "firefox"]
+    assert format_shared_apps(["Discord", "firefox"]) == "Discord y firefox"
+
+
+def test_shared_mic_one_app_never_notifies() -> None:
+    notify, since, last = shared_mic_transition(
+        [],
+        ["Discord"],
+        now=0.0,
+        shared_since=None,
+        last_notified=None,
+    )
+    assert notify is None
+    assert since is None
+    assert last is None
+
+
+def test_shared_mic_two_apps_hold_then_notify_once() -> None:
+    notify, since, last = shared_mic_transition(
+        [],
+        ["Discord", "firefox"],
+        now=0.0,
+        shared_since=None,
+        last_notified=None,
+    )
+    assert notify is None
+    assert since == 0.0
+
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=1.5,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify is None
+    assert since == 0.0
+
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=2.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify == ["Discord", "firefox"]
+    assert since == SHARED_LATCHED
+    assert last is not None
+    assert last.apps == frozenset({"discord", "firefox"})
+
+    notify2, since2, last2 = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=3.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify2 is None
+    assert since2 == SHARED_LATCHED
+    assert last2 is last
+
+
+def test_shared_mic_cooldown_same_set() -> None:
+    notify, since, last = shared_mic_transition(
+        [],
+        ["Discord", "firefox"],
+        now=0.0,
+        shared_since=None,
+        last_notified=None,
+    )
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=2.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify == ["Discord", "firefox"]
+
+    # Baja a 1 y vuelve a 2 dentro del cooldown: no avisa.
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord"],
+        now=10.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify is None
+    assert since is None
+
+    notify, since, last = shared_mic_transition(
+        ["Discord"],
+        ["Discord", "firefox"],
+        now=11.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify is None
+    assert since == 11.0
+
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=13.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify is None
+    assert since == SHARED_LATCHED
+
+    # Después del cooldown sí avisa.
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord"],
+        now=70.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert since is None
+
+    notify, since, last = shared_mic_transition(
+        ["Discord"],
+        ["Discord", "firefox"],
+        now=71.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    notify, since, last = shared_mic_transition(
+        ["Discord", "firefox"],
+        ["Discord", "firefox"],
+        now=73.0,
+        shared_since=since,
+        last_notified=last,
+    )
+    assert notify == ["Discord", "firefox"]
+
+
+def test_parse_two_distinct_capture_apps() -> None:
+    dump = _dump() + [
+        _node(
+            7,
+            {
+                "media.class": "Stream/Input/Audio",
+                "application.process.binary": "firefox",
+                "application.process.id": 9001,
+            },
+        ),
+        _port(20, 1),
+        _port(21, 7),
+        _link(20, 21),
+    ]
+    clients = parse_capture_clients(dump, ignore_pids={5000, 7000, 8000})
+    assert unique_capture_apps(clients) == ["Discord", "firefox"]

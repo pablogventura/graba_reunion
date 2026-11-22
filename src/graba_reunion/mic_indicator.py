@@ -26,16 +26,21 @@ from graba_reunion.mic_watch import (  # noqa: E402
     MANUAL_SILENCE_SECONDS,
     SILENCE_CHECK_SECONDS,
     CaptureClient,
+    SharedNotifyState,
     WatchState,
     advance_manual_silence,
     clear_recording_pending,
     descendant_pids,
     file_trailing_is_silent,
+    format_shared_apps,
     load_capture_clients,
     mark_recording_pending,
+    mark_transcription_failed,
     recent_transcripts,
     recording_decision,
+    shared_mic_transition,
     tick,
+    unique_capture_apps,
     unfinished_recordings,
 )
 from graba_reunion.paths import default_output_dir  # noqa: E402
@@ -47,6 +52,8 @@ from graba_reunion.viewer import view_command  # noqa: E402
 POLL_SECONDS = 1
 ICON_IDLE = "microphone-disabled-symbolic"
 ICON_ACTIVE = "microphone-sensitivity-high-symbolic"
+ICON_SHARED = "dialog-warning-symbolic"
+_SECRET_RE = re.compile(r"(hf_[A-Za-z0-9]+|sk-[A-Za-z0-9]+)")
 
 
 def graba_reunion_bin() -> str:
@@ -92,9 +99,33 @@ def log_line(message: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().isoformat(timespec="seconds")
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{stamp} {message}\n")
+            handle.write(f"{stamp} {_redact_secrets(message)}\n")
     except OSError:
         return
+
+
+def _redact_secrets(text: str) -> str:
+    return _SECRET_RE.sub("***", text)
+
+
+def _read_transcribe_error(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    text = _redact_secrets(raw)
+    lowered = text.casefold()
+    if "out of memory" in lowered or "cuda failed" in lowered:
+        return "GPU sin memoria (CUDA OOM)"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.startswith("Error") or "Error" in line or line.startswith("RuntimeError"):
+            return line[:180]
+    if not lines:
+        return ""
+    return lines[-1][:180]
 
 
 def _append_search_column(
@@ -159,16 +190,26 @@ def _on_notify_open(note: Notify.Notification, _action: str, path_text: str) -> 
     note.close()
 
 
-def gnome_notify(summary: str, body: str, *, open_path: Path | None = None) -> None:
+def gnome_notify(
+    summary: str,
+    body: str,
+    *,
+    open_path: Path | None = None,
+    icon: str = "audio-x-generic",
+    urgency: int | None = None,
+) -> None:
     """Aviso en el escritorio. Si hay open_path, el clic abre el visor en esa reunión."""
     try:
         if not Notify.is_initted():
             Notify.init("graba-reunion")
-        note = Notify.Notification.new(summary, body, "audio-x-generic")
+        note = Notify.Notification.new(summary, body, icon)
+        if urgency is not None:
+            note.set_urgency(urgency)
+        # Sin referencia viva PyGObject puede recolectar el aviso antes de mostrarlo.
+        note.connect("closed", _drop_note)
+        _live_notes.append(note)
         if open_path is not None:
             note.add_action("default", "Abrir", _on_notify_open, str(open_path))
-            note.connect("closed", _drop_note)
-            _live_notes.append(note)
         note.show()
     except Exception as error:
         log_line(f"no se pudo notificar: {error}")
@@ -187,9 +228,13 @@ class MicIndicator:
         self.indicator.set_menu(self.menu)
         self.state = WatchState()
         self.clients: list[CaptureClient] = []
+        self._prev_shared_apps: list[str] = []
+        self._shared_since: float | None = None
+        self._shared_last_notified: SharedNotifyState | None = None
         self.record_proc: subprocess.Popen[str] | None = None
         self.transcribe_proc: subprocess.Popen[str] | None = None
         self.transcribe_mp3: Path | None = None
+        self.transcribe_err_path: Path | None = None
         self.transcribe_queue: list[Path] = []
         self.mp3: Path | None = None
         self.started_at: float | None = None
@@ -227,6 +272,7 @@ class MicIndicator:
             self.manual = False
             self._silence_since = None
         now = GLib.get_monotonic_time() / 1_000_000
+        self._poll_shared_mic(now)
         self._poll_manual_silence(now)
         action = tick(
             self.state,
@@ -455,7 +501,7 @@ class MicIndicator:
     def _resume_unfinished(self) -> None:
         pending = [
             path
-            for path in unfinished_recordings()
+            for path in unfinished_recordings(skip_recent_failures=True)
             if path != self.mp3 and path not in self.transcribe_queue
         ]
         if not pending:
@@ -500,12 +546,17 @@ class MicIndicator:
             log_line(f"error: {error}")
             gnome_notify("No se pudo transcribir", str(error))
             return
+        err_path = data_dir() / "transcribe-stderr.log"
+        err_path.parent.mkdir(parents=True, exist_ok=True)
+        err_handle = err_path.open("wb")
         self.transcribe_mp3 = mp3
+        self.transcribe_err_path = err_path
         self.transcribe_proc = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=err_handle,
         )
+        err_handle.close()
         log_line(f"transcribiendo {mp3}")
 
     def _reap_transcribe(self) -> None:
@@ -514,27 +565,63 @@ class MicIndicator:
             return
         code = proc.returncode
         mp3 = self.transcribe_mp3
+        err_path = getattr(self, "transcribe_err_path", None)
         self.transcribe_proc = None
         self.transcribe_mp3 = None
+        self.transcribe_err_path = None
+        detail = _read_transcribe_error(err_path)
         log_line(f"transcripción terminada code={code}")
+        if detail:
+            log_line(f"transcripción error: {detail}")
         if mp3 is not None and code == 0 and mp3.with_suffix(".txt").is_file():
             clear_recording_pending(mp3)
             txt = mp3.with_suffix(".txt")
             gnome_notify("Transcripción lista", txt.name, open_path=txt)
             return
         name = mp3.name if mp3 is not None else "la grabación"
+        reason = detail or "revisá el log del indicador"
+        if mp3 is not None:
+            mark_transcription_failed(mp3, reason)
         gnome_notify(
             "No se pudo transcribir",
-            f"{name} quedó pendiente. Se reintenta al volver a abrir el indicador.",
+            f"{name}: {reason}. No reintento solo por un rato (suele ser falta de VRAM).",
         )
 
+    def _poll_shared_mic(self, now: float) -> None:
+        curr_apps = unique_capture_apps(self.clients)
+        notify_apps, self._shared_since, self._shared_last_notified = shared_mic_transition(
+            self._prev_shared_apps,
+            curr_apps,
+            now=now,
+            shared_since=self._shared_since,
+            last_notified=self._shared_last_notified,
+        )
+        self._prev_shared_apps = curr_apps
+        if not notify_apps:
+            return
+        names = format_shared_apps(notify_apps)
+        gnome_notify(
+            "Micrófono compartido",
+            f"{names} usan el micrófono a la vez. "
+            "Cuidado si ibas a mandar un audio en otra app.",
+            icon="dialog-warning",
+            urgency=Notify.Urgency.CRITICAL,
+        )
+        log_line(f"micrófono compartido: {names}")
+
+    def _shared_mic_active(self) -> bool:
+        return len(unique_capture_apps(self.clients)) >= 2
+
     def _status_title(self) -> str:
+        shared = self._shared_mic_active()
         if self._record_alive() and self.paused:
-            return "Grabación en pausa"
+            return "Pausa - mic compartido" if shared else "Grabación en pausa"
         if self._record_alive():
-            return "Grabando reunión"
+            return "Grabando - mic compartido" if shared else "Grabando reunión"
         if self.transcribe_proc is not None and self.transcribe_proc.poll() is None:
             return "Transcribiendo"
+        if shared:
+            return "Micrófono compartido"
         if self.state.phase == "arming" or self.clients:
             return "Micrófono en uso"
         return "Micrófono libre"
@@ -542,15 +629,21 @@ class MicIndicator:
     def _paint(self) -> None:
         title = self._status_title()
         recording = self._record_alive()
+        shared = self._shared_mic_active()
         recent = recent_transcripts(default_output_dir())
         key = (
             title,
             self.paused,
-            self._record_alive(),
+            recording,
+            shared,
             tuple((item.app, item.pid, item.device) for item in self.clients),
             tuple(path.name for path in recent),
         )
         if recording:
+            self.indicator.set_attention_icon_full(ICON_ACTIVE, "Grabando")
+            self.indicator.set_status(AppIndicator.IndicatorStatus.ATTENTION)
+        elif shared:
+            self.indicator.set_attention_icon_full(ICON_SHARED, "Micrófono compartido")
             self.indicator.set_status(AppIndicator.IndicatorStatus.ATTENTION)
         else:
             self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)

@@ -36,6 +36,84 @@ class CaptureClient:
     flatpak: bool
 
 
+SHARED_HOLD_SECONDS = 2.0
+SHARED_COOLDOWN_SECONDS = 60.0
+# shared_since tras consumir el flanco de este periodo continuo (>=2 apps).
+SHARED_LATCHED = -1.0
+
+
+@dataclass(frozen=True)
+class SharedNotifyState:
+    """Último aviso de micrófono compartido (apps + instante)."""
+
+    apps: frozenset[str]
+    at: float
+
+
+def unique_capture_apps(clients: list[CaptureClient]) -> list[str]:
+    """Apps distintas en orden estable; dedupe por nombre casefold."""
+    seen: set[str] = set()
+    apps: list[str] = []
+    for client in clients:
+        key = client.app.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        apps.append(client.app)
+    return apps
+
+
+def format_shared_apps(apps: list[str]) -> str:
+    """Une nombres para el cuerpo de la notificación."""
+    if not apps:
+        return ""
+    if len(apps) == 1:
+        return apps[0]
+    if len(apps) == 2:
+        return f"{apps[0]} y {apps[1]}"
+    return ", ".join(apps[:-1]) + f" y {apps[-1]}"
+
+
+def shared_mic_transition(
+    prev_apps: list[str],
+    curr_apps: list[str],
+    *,
+    now: float,
+    shared_since: float | None,
+    last_notified: SharedNotifyState | None,
+    hold_seconds: float = SHARED_HOLD_SECONDS,
+    cooldown_seconds: float = SHARED_COOLDOWN_SECONDS,
+) -> tuple[list[str] | None, float | None, SharedNotifyState | None]:
+    """Flanco a 2+ apps: hold 2 s y cooldown 60 s para el mismo set.
+
+    Devuelve (apps_a_notificar | None, nuevo_shared_since, nuevo_last_notified).
+    Un periodo continuo solo dispara una evaluación; al bajar de 2 se reinicia.
+    """
+    del prev_apps  # el flanco se modela con shared_since / SHARED_LATCHED
+    curr_set = frozenset(a.casefold() for a in curr_apps)
+    if len(curr_apps) < 2:
+        return None, None, last_notified
+
+    if shared_since is None:
+        return None, now, last_notified
+
+    if shared_since == SHARED_LATCHED:
+        return None, SHARED_LATCHED, last_notified
+
+    if now - shared_since < hold_seconds:
+        return None, shared_since, last_notified
+
+    if (
+        last_notified is not None
+        and last_notified.apps == curr_set
+        and now - last_notified.at < cooldown_seconds
+    ):
+        return None, SHARED_LATCHED, last_notified
+
+    notified = SharedNotifyState(apps=curr_set, at=now)
+    return list(curr_apps), SHARED_LATCHED, notified
+
+
 @dataclass
 class WatchState:
     phase: str = "idle"
@@ -310,6 +388,10 @@ def recording_decision(duration_seconds: float | None, *, minimum: float = MIN_K
     return "transcribe"
 
 
+# Tras un fallo, no reintentar solo al reiniciar el indicador hasta que pase esto.
+FAILED_RETRY_SECONDS = 6 * 60 * 60
+
+
 def pending_dir() -> Path:
     return data_dir() / "pending"
 
@@ -318,10 +400,15 @@ def _pending_marker(mp3: Path) -> Path:
     return pending_dir() / f"{mp3.stem}.path"
 
 
+def _failed_marker(mp3: Path) -> Path:
+    return pending_dir() / f"{mp3.stem}.failed"
+
+
 def mark_recording_pending(mp3: Path) -> None:
     """Deja en disco que este MP3 todavía no se transcribió."""
     directory = pending_dir()
     directory.mkdir(parents=True, exist_ok=True)
+    clear_transcription_failed(mp3)
     marker = _pending_marker(mp3)
     marker.write_text(str(mp3.resolve()) + "\n", encoding="utf-8")
     fd = marker.open("rb+")
@@ -334,6 +421,44 @@ def mark_recording_pending(mp3: Path) -> None:
 
 def clear_recording_pending(mp3: Path) -> None:
     _pending_marker(mp3).unlink(missing_ok=True)
+    clear_transcription_failed(mp3)
+
+
+def mark_transcription_failed(mp3: Path, reason: str = "") -> None:
+    """Marca un fallo reciente para no spamear reintentos/notificaciones."""
+    directory = pending_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    cleaned = " ".join(reason.strip().split())
+    body = f"{int(time.time())}\n{cleaned}\n"
+    _failed_marker(mp3).write_text(body, encoding="utf-8")
+
+
+def clear_transcription_failed(mp3: Path) -> None:
+    _failed_marker(mp3).unlink(missing_ok=True)
+
+
+def recent_transcription_failure(
+    mp3: Path,
+    *,
+    now: float | None = None,
+    within_seconds: float = FAILED_RETRY_SECONDS,
+) -> str | None:
+    """Motivo del último fallo si sigue en la ventana de enfriamiento; si no, None."""
+    marker = _failed_marker(mp3)
+    if not marker.is_file():
+        return None
+    try:
+        lines = marker.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if not lines or not lines[0].strip().isdigit():
+        return None
+    stamp = int(lines[0].strip())
+    moment = time.time() if now is None else now
+    if moment - stamp > within_seconds:
+        return None
+    reason = " ".join(lines[1:]).strip()
+    return reason or "error desconocido"
 
 
 def recent_transcripts(
@@ -358,7 +483,7 @@ def recent_transcripts(
     return [path for _, path in found]
 
 
-def unfinished_recordings() -> list[Path]:
+def unfinished_recordings(*, skip_recent_failures: bool = False) -> list[Path]:
     """MP3 marcados que siguen sin transcripción (.txt)."""
     directory = pending_dir()
     if not directory.is_dir():
@@ -371,10 +496,12 @@ def unfinished_recordings() -> list[Path]:
             continue
         mp3 = Path(text)
         if mp3.with_suffix(".txt").is_file():
-            marker.unlink(missing_ok=True)
+            clear_recording_pending(mp3)
             continue
         if not mp3.is_file():
-            marker.unlink(missing_ok=True)
+            clear_recording_pending(mp3)
+            continue
+        if skip_recent_failures and recent_transcription_failure(mp3) is not None:
             continue
         pending.append(mp3)
     return pending

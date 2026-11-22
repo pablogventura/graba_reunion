@@ -777,6 +777,9 @@ PipeWire ve el proceso que abre el micrófono, no el nombre del sitio.
 |-------|-------------|
 | Micrófono tachado | No está grabando (aunque otra app use el micrófono, o haya una transcripción) |
 | Micrófono activo | Hay una grabación en curso, también si está en pausa |
+| Advertencia | Dos o más apps distintas capturan el micrófono a la vez (sin estar grabando) |
+
+Si dos apps distintas usan el micrófono a la vez (por ejemplo Discord y el navegador), el indicador pone el icono de advertencia, cambia el título a **Micrófono compartido** y manda una notificación de GNOME (antirrebote 2 s, enfriamiento 60 s).
 
 El menú lista la app y el dispositivo (por ejemplo `Discord - HyperX...`), y debajo los nombres de las transcripciones (`.txt`) de las últimas 24 horas. Un clic en un nombre abre el visor en esa reunión. **Ver conversaciones** abre el listado.
 

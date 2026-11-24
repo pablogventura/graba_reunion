@@ -51,5 +51,9 @@ if [[ ! -f "$CONFIG_DIR/.env" ]]; then
   echo "Semilla de config en $CONFIG_DIR/.env"
 fi
 
-echo "Listo. Siguiente paso: graba-reunion setup"
+echo
+echo "Listo."
+echo "Siguiente paso: ejecutá  graba-reunion setup"
+echo "  Ahí configurás tokens, mic/monitor y el autostart del indicador"
+echo "  (graba-reunion-mic al iniciar sesión)."
 echo "Config: ${GRABA_CONFIG:-$CONFIG_DIR/.env}"

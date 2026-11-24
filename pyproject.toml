@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.6.1"
+version = "0.6.2"
 description = "Graba micrófono + monitor, transcribe con WhisperX y opcionalmente minuta con Groq"
 readme = "README.md"
 # WhisperX declara <3.14; alineamos el techo para fallar claro en pip/pipx.

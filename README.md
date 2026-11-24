@@ -94,7 +94,7 @@ Variables clave:
 
 Con el micrófono libre, **Grabar** arranca una toma a mano. Si nadie más usa el micrófono, se corta sola tras 10 minutos de silencio en el audio. Si otra app lo abre y lo suelta, vuelve el corte a los 10 segundos. Mientras graba: **Pausar** congela el audio (el silencio no corta la toma), **Nueva reunión** cierra la toma y abre otra al instante, **Detener** aplica la regla de duración y **Cancelar** abre un cuadro para confirmar antes de borrar el MP3. **Salir** equivale a Detener. **Buscar** abre un diálogo de tema, palabra o participante.
 
-Arranca con la sesión gráfica (`~/.config/autostart/graba-reunion-mic.desktop`). Si quedó un MP3 sin transcribir (corte de luz, cierre brusco), al volver lo transcribe y avisa con una notificación de GNOME. Log en `~/.local/share/graba-reunion/mic-indicator.log`.
+El autostart se configura en `graba-reunion setup` (lanza `graba-reunion-mic` al iniciar sesión). Si quedó un MP3 sin transcribir (corte de luz, cierre brusco), al volver lo transcribe y avisa con una notificación de GNOME. Log en `~/.local/share/graba-reunion/mic-indicator.log`.
 
 Detalle de cada variable, flujos y troubleshooting: **[guía completa](docs/guia-completa.md)**.
 

@@ -15,9 +15,17 @@ from graba_reunion.config import (
     write_env,
 )
 from graba_reunion.deps_installer import detect_missing_deps, install_torch_cuda
+from graba_reunion.mic_autostart import install_mic_autostart
 from graba_reunion.paths import default_output_dir
 
 InputFn = Callable[[str], str]
+
+
+def _wants_yes(answer: str, *, default_yes: bool) -> bool:
+    cleaned = answer.strip().lower()
+    if not cleaned:
+        return default_yes
+    return cleaned in {"s", "si", "sí", "y", "yes"}
 
 
 def _default_input(prompt: str) -> str:
@@ -188,10 +196,32 @@ def run_setup_wizard(*, input_fn: InputFn = _default_input) -> int:
     )
     print(f"\nConfiguración guardada en {target}")
 
+    print(
+        "\nEl indicador de micrófono (graba-reunion-mic) puede arrancar "
+        "con la sesión gráfica."
+    )
+    if _wants_yes(
+        input_fn("¿Instalar autostart del indicador? [S/n] "),
+        default_yes=True,
+    ):
+        try:
+            launcher, desktop = install_mic_autostart()
+        except OSError as error:
+            print(f"No se pudo instalar el autostart: {error}", file=sys.stderr)
+        else:
+            print(f"Lanzador: {launcher}")
+            print(f"Autostart: {desktop}")
+            print("Se activará al iniciar sesión (o lanzalo ahora con graba-reunion-mic).")
+    else:
+        print("Omitido. Podés repetir con: graba-reunion setup")
+
     missing = detect_missing_deps()
     if "torch-cuda" in missing:
         print("\nTorch CUDA no detectado con device=cuda.")
-        if input_fn("¿Reinstalar torch con CUDA? [s/N] ").lower() in {"s", "si", "sí", "y", "yes"}:
+        if _wants_yes(
+            input_fn("¿Reinstalar torch con CUDA? [s/N] "),
+            default_yes=False,
+        ):
             return install_torch_cuda(yes=True)
     return 0
 
@@ -221,9 +251,10 @@ def ensure_configured(flows: list[str], *, input_fn: InputFn = _default_input) -
         if missing_deps:
             print("Faltan dependencias:", ", ".join(missing_deps))
             print("Ejecutá: graba-reunion setup --install-deps")
-            if "torch-cuda" in missing_deps and input_fn(
-                "¿Intentar reparar torch CUDA ahora? [s/N] "
-            ).lower() in {"s", "si", "sí", "y", "yes"}:
+            if "torch-cuda" in missing_deps and _wants_yes(
+                input_fn("¿Intentar reparar torch CUDA ahora? [s/N] "),
+                default_yes=False,
+            ):
                 return install_torch_cuda(yes=True)
             return 1
         return 0
@@ -233,8 +264,7 @@ def ensure_configured(flows: list[str], *, input_fn: InputFn = _default_input) -
         fields.extend(missing_required_fields(flow))
     unique = sorted(set(fields))
     print("Configuración incompleta. Faltan:", ", ".join(unique))
-    answer = input_fn("¿Configurar ahora? [s/N] ")
-    if answer.lower() not in {"s", "si", "sí", "y", "yes"}:
+    if not _wants_yes(input_fn("¿Configurar ahora? [s/N] "), default_yes=False):
         print("Ejecutá: graba-reunion setup", file=sys.stderr)
         return 1
     return run_setup_wizard(input_fn=input_fn)

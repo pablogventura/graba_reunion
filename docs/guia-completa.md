@@ -824,7 +824,12 @@ La marca se borra cuando existe el `.txt`. Si la transcripción falla, queda y s
 
 ### Arranque al iniciar sesión
 
-El archivo es `~/.config/autostart/graba-reunion-mic.desktop`. El `Exec` apunta a `scripts/graba-reunion-mic`, que usa el Python del sistema (ahí está PyGObject) y el código del repositorio. Grabar y transcribir lo hace el `graba-reunion` instalado. Arranca al entrar a la sesión, no antes del login.
+Durante `graba-reunion setup` preguntá por el autostart (Enter = sí). Eso escribe:
+
+- `~/.local/bin/graba-reunion-mic` (lanzador: Python del sistema + código del paquete instalado)
+- `~/.config/autostart/graba-reunion-mic.desktop`
+
+Grabar y transcribir lo hace el `graba-reunion` de pipx. Arranca al entrar a la sesión, no antes del login.
 
 Para lanzarlo a mano:
 

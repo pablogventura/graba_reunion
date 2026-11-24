@@ -14,9 +14,9 @@ def test_run_setup_wizard_writes_env(monkeypatch, tmp_path) -> None:
 
     secrets = iter(["hf-token", "groq-key"])
     # backend, mic, mon, device, language, model, compute, batch,
-    # output, prefix, db, groq_model
+    # output, prefix, groq_model, autostart
     prompts = iter(
-        ["pulse", "1", "2", "cuda", "", "", "", "", "", "", "", ""]
+        ["pulse", "1", "2", "cuda", "", "", "", "", "", "", "", "n"]
     )
     monkeypatch.setattr(
         "graba_reunion.setup_wizard.list_pulse_sources",

@@ -38,7 +38,7 @@ Config: `~/.config/graba-reunion/.env`
 
 - Linux + PulseAudio (o PipeWire-as-Pulse); ALSA opcional
 - `ffmpeg`
-- Python 3.10+ (pipx trae el venv)
+- Python **3.10 a 3.13** (WhisperX aún no soporta 3.14; el script de pipx elige solo uno compatible)
 - [HF token](https://huggingface.co/settings/tokens) + aceptar licencias [pyannote diarization](https://huggingface.co/pyannote/speaker-diarization-community-1) y [segmentation](https://huggingface.co/pyannote/segmentation-3.0)
 - Groq API key solo si usás `--groq`
 - GPU NVIDIA recomendada; sin GPU: `device=cpu`
@@ -101,8 +101,12 @@ Detalle de cada variable, flujos y troubleshooting: **[guía completa](docs/guia
 ## Instalación (detalle breve)
 
 ```bash
-# pipx (uso diario)
+# pipx desde el clone (elige solo Python 3.10-3.13)
 bash scripts/pipx-install.sh
+# forzar intérprete: GRABA_PYTHON=python3.12 bash scripts/pipx-install.sh
+
+# pipx desde PyPI
+pipx install --python python3.12 graba-reunion
 
 # desarrollo
 make setup

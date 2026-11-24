@@ -4,7 +4,7 @@ Guía mínima para agentes que trabajan en este repositorio.
 
 ## Stack
 
-- Python 3.10+, hatchling
+- Python 3.10-3.13 (WhisperX `<3.14`), hatchling
 - CLI: argparse + subcomandos
 - Audio: ffmpeg + PulseAudio (ALSA opcional)
 - Transcripción: WhisperX (default) o faster-whisper (`--no-diarize`)

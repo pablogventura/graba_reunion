@@ -4,15 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graba-reunion"
-version = "0.6.0"
+version = "0.6.1"
 description = "Graba micrófono + monitor, transcribe con WhisperX y opcionalmente minuta con Groq"
 readme = "README.md"
-requires-python = ">=3.10"
+# WhisperX declara <3.14; alineamos el techo para fallar claro en pip/pipx.
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "groq>=0.11",
     "whisperx>=3.8",
     "faster-whisper>=1.0",
-    "sentence-transformers>=3.0,<5",
+    "sentence-transformers>=3.0",
 ]
 license = "MIT"
 keywords = ["audio", "pulseaudio", "ffmpeg", "whisper", "recording", "diarization"]

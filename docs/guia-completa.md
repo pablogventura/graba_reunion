@@ -62,7 +62,7 @@ Por defecto **no** llama a Groq: solo graba y transcribe. La minuta se activa co
 | PulseAudio o PipeWire (modo Pulse) | Default; ALSA como alternativa |
 | `ffmpeg` | `sudo apt install ffmpeg` |
 | `pactl` | Para listar fuentes en el wizard (paquete `pulseaudio-utils` o PipeWire equivalente) |
-| Python 3.10+ | La install con pipx trae su propio intérprete en el venv |
+| Python 3.10-3.13 | WhisperX exige `<3.14`; pipx debe usar uno de ese rango |
 
 ### Cuentas externas
 
@@ -97,9 +97,16 @@ bash scripts/pipx-install.sh
 
 Eso:
 
+- Elige un Python 3.10-3.13 disponible (WhisperX no soporta 3.14+; override con `GRABA_PYTHON`)
 - Instala el paquete en modo editable con pipx
 - Usa el índice PyTorch CUDA (`GRABA_TORCH_INDEX` si está definido)
 - Siembra `~/.config/graba-reunion/.env` desde `.env.example` si no existe
+
+Desde PyPI (sin clone):
+
+```bash
+pipx install --python python3.12 graba-reunion
+```
 
 Comprobar:
 

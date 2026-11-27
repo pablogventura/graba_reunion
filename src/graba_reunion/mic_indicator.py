@@ -21,6 +21,18 @@ gi.require_version("Notify", "0.7")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator  # noqa: E402
 from gi.repository import GLib, Gtk, Notify, Pango  # noqa: E402
 
+from graba_reunion.clip_range import (  # noqa: E402
+    CLIP_PRESETS_SECONDS,
+    DEFAULT_CLIP_SECONDS,
+    MAX_CLIP_SECONDS,
+    MIN_CLIP_SECONDS,
+    clip_is_long_enough,
+    clip_output_path,
+    extract_audio_clip,
+    format_clip_preview,
+    is_clip_path,
+    resolve_clip_window,
+)
 from graba_reunion.config import data_dir  # noqa: E402
 from graba_reunion.mic_watch import (  # noqa: E402
     MANUAL_SILENCE_SECONDS,
@@ -46,7 +58,11 @@ from graba_reunion.mic_watch import (  # noqa: E402
 from graba_reunion.paths import default_output_dir  # noqa: E402
 from graba_reunion.phrases import start_for_clock  # noqa: E402
 from graba_reunion.search import search_command  # noqa: E402
-from graba_reunion.timing import add_pause, probe_duration_seconds  # noqa: E402
+from graba_reunion.timing import (  # noqa: E402
+    add_pause,
+    load_recording_timing,
+    probe_duration_seconds,
+)
 from graba_reunion.viewer import view_command  # noqa: E402
 
 POLL_SECONDS = 1
@@ -254,6 +270,8 @@ class MicIndicator:
         self._pause_wall: datetime | None = None
         self._pause_audio_at: float | None = None
         self._search_dialog: Gtk.Dialog | None = None
+        self._clip_dialog: Gtk.Dialog | None = None
+        self._clip_busy = False
         self._status_key: tuple[object, ...] | None = None
         log_line("indicador iniciado")
         self._resume_unfinished()
@@ -433,12 +451,18 @@ class MicIndicator:
         proc = self.record_proc
         if proc is None or proc.poll() is None:
             return
+        closed = self.mp3
         restart = self.restart_after_stop
         self.restart_after_stop = False
         try:
             self._finish_record()
         finally:
             if restart:
+                if closed is not None:
+                    gnome_notify(
+                        "Cortar y seguir",
+                        f"Cerrada {closed.name}; sigue grabando.",
+                    )
                 self._start_followup()
 
     def _finish_record(self) -> None:
@@ -537,7 +561,7 @@ class MicIndicator:
             clear_recording_pending(mp3)
             return
         duration = media_duration_seconds(mp3)
-        if recording_decision(duration) == "discard":
+        if not is_clip_path(mp3) and recording_decision(duration) == "discard":
             self._discard_short(mp3, duration)
             return
         try:
@@ -576,7 +600,8 @@ class MicIndicator:
         if mp3 is not None and code == 0 and mp3.with_suffix(".txt").is_file():
             clear_recording_pending(mp3)
             txt = mp3.with_suffix(".txt")
-            gnome_notify("Transcripción lista", txt.name, open_path=txt)
+            title = "Tramo listo" if is_clip_path(mp3) else "Transcripción lista"
+            gnome_notify(title, txt.name, open_path=txt)
             return
         name = mp3.name if mp3 is not None else "la grabación"
         reason = detail or "revisá el log del indicador"
@@ -694,12 +719,12 @@ class MicIndicator:
             resume_item = Gtk.MenuItem(label="Reanudar")
             resume_item.connect("activate", self._on_resume)
             self.menu.append(resume_item)
-            self._append_stop_and_cancel()
+            self._append_recording_actions()
         elif self._record_alive():
             pause_item = Gtk.MenuItem(label="Pausar")
             pause_item.connect("activate", self._on_pause)
             self.menu.append(pause_item)
-            self._append_stop_and_cancel()
+            self._append_recording_actions()
         else:
             record_item = Gtk.MenuItem(label="Grabar")
             record_item.connect("activate", self._on_record)
@@ -709,10 +734,24 @@ class MicIndicator:
         self.menu.append(quit_item)
         self.menu.show_all()
 
-    def _append_stop_and_cancel(self) -> None:
-        new_item = Gtk.MenuItem(label="Nueva reunión")
-        new_item.connect("activate", self._on_new_meeting)
-        self.menu.append(new_item)
+    def _append_recording_actions(self) -> None:
+        self.menu.append(Gtk.SeparatorMenuItem())
+        last10 = Gtk.MenuItem(label="Transcribir últimos 10 min")
+        last10.connect("activate", self._on_transcribe_last_10)
+        last10.set_sensitive(not self._clip_busy)
+        self.menu.append(last10)
+        until_now = Gtk.MenuItem(label="Transcribir hasta ahora")
+        until_now.connect("activate", self._on_transcribe_until_now)
+        until_now.set_sensitive(not self._clip_busy)
+        self.menu.append(until_now)
+        custom = Gtk.MenuItem(label="Transcribir tramo...")
+        custom.connect("activate", self._on_transcribe_clip_dialog)
+        custom.set_sensitive(not self._clip_busy)
+        self.menu.append(custom)
+        self.menu.append(Gtk.SeparatorMenuItem())
+        cut_item = Gtk.MenuItem(label="Cortar y seguir")
+        cut_item.connect("activate", self._on_new_meeting)
+        self.menu.append(cut_item)
         stop_item = Gtk.MenuItem(label="Detener")
         stop_item.connect("activate", self._on_stop)
         self.menu.append(stop_item)
@@ -995,11 +1034,189 @@ class MicIndicator:
     def _on_open_transcript(self, _item: Gtk.MenuItem, path_text: str) -> None:
         open_viewer(Path(path_text))
 
+    def _on_transcribe_last_10(self, *_args: object) -> None:
+        self._request_clip(last_seconds=DEFAULT_CLIP_SECONDS, from_start=False)
+
+    def _on_transcribe_until_now(self, *_args: object) -> None:
+        self._request_clip(last_seconds=None, from_start=True)
+
+    def _on_transcribe_clip_dialog(self, *_args: object) -> None:
+        if not self._record_alive() or self.mp3 is None:
+            return
+        if self._clip_dialog is not None:
+            self._clip_dialog.present()
+            return
+        duration = probe_duration_seconds(self.mp3)
+        if duration is None or duration <= 0:
+            gnome_notify("Tramo", "No se pudo medir la duración del audio todavía.")
+            return
+        timing = load_recording_timing(self.mp3)
+        started_at = timing.started_at if timing is not None else datetime.now()
+        pauses = timing.pauses if timing is not None else ()
+
+        dialog = Gtk.Dialog(title="Transcribir tramo")
+        dialog.set_default_size(420, 220)
+        dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Transcribir", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        box = dialog.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(10)
+
+        spin = Gtk.SpinButton.new_with_range(1, int(MAX_CLIP_SECONDS // 60), 1)
+        spin.set_value(int(DEFAULT_CLIP_SECONDS // 60))
+        from_start = {"value": False}
+        preview = Gtk.Label(label="")
+        preview.set_line_wrap(True)
+        preview.set_xalign(0.0)
+
+        def refresh_preview(*_args: object) -> None:
+            if from_start["value"]:
+                start, end = resolve_clip_window(duration, from_start=True)
+                clamped = False
+            else:
+                wanted = float(spin.get_value()) * 60.0
+                start, end = resolve_clip_window(duration, last_seconds=wanted)
+                clamped = start == 0.0 and wanted > duration + 0.01
+            preview.set_text(
+                format_clip_preview(
+                    start,
+                    end,
+                    started_at=started_at,
+                    pauses=pauses,
+                    clamped_from_start=clamped,
+                )
+            )
+            ok = clip_is_long_enough(start, end)
+            dialog.set_response_sensitive(Gtk.ResponseType.OK, ok)
+            if not ok:
+                preview.set_text(
+                    preview.get_text()
+                    + f"\nHace falta al menos {int(MIN_CLIP_SECONDS)} s de audio."
+                )
+
+        def choose_preset(seconds: float) -> None:
+            from_start["value"] = False
+            spin.set_sensitive(True)
+            spin.set_value(max(1, int(seconds // 60)))
+            refresh_preview()
+
+        def choose_from_start(*_args: object) -> None:
+            from_start["value"] = True
+            spin.set_sensitive(False)
+            refresh_preview()
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for seconds in CLIP_PRESETS_SECONDS:
+            minutes = int(seconds // 60)
+            button = Gtk.Button(label=f"Últimos {minutes} min")
+            button.connect("clicked", lambda _b, secs=seconds: choose_preset(secs))
+            row.pack_start(button, True, True, 0)
+        start_btn = Gtk.Button(label="Desde el inicio")
+        start_btn.connect("clicked", choose_from_start)
+        row.pack_start(start_btn, True, True, 0)
+        box.pack_start(row, False, False, 0)
+
+        spin_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        spin_row.pack_start(Gtk.Label(label="Últimos N minutos:"), False, False, 0)
+        spin_row.pack_start(spin, False, False, 0)
+        box.pack_start(spin_row, False, False, 0)
+        spin.connect("value-changed", refresh_preview)
+        box.pack_start(preview, False, False, 0)
+        refresh_preview()
+
+        dialog.connect("response", self._on_clip_dialog_response, spin, from_start)
+        dialog.connect("delete-event", self._on_clip_dialog_close)
+        self._clip_dialog = dialog
+        dialog.show_all()
+
+    def _on_clip_dialog_close(self, *_args: object) -> bool:
+        if self._clip_dialog is not None:
+            self._clip_dialog.destroy()
+            self._clip_dialog = None
+        return True
+
+    def _on_clip_dialog_response(
+        self,
+        dialog: Gtk.Dialog,
+        response: int,
+        spin: Gtk.SpinButton,
+        from_start_state: dict[str, bool],
+    ) -> None:
+        use_start = from_start_state["value"]
+        minutes = float(spin.get_value())
+        dialog.destroy()
+        self._clip_dialog = None
+        if response != Gtk.ResponseType.OK:
+            return
+        if use_start:
+            self._request_clip(last_seconds=None, from_start=True)
+        else:
+            self._request_clip(last_seconds=minutes * 60.0, from_start=False)
+
+    def _request_clip(self, *, last_seconds: float | None, from_start: bool) -> None:
+        if self._clip_busy:
+            gnome_notify("Tramo", "Ya hay un recorte en curso.")
+            return
+        if not self._record_alive() or self.mp3 is None:
+            return
+        source = self.mp3
+        duration = probe_duration_seconds(source)
+        if duration is None or duration <= 0:
+            gnome_notify("Tramo", "No se pudo medir la duración del audio todavía.")
+            return
+        start, end = resolve_clip_window(
+            duration,
+            last_seconds=last_seconds,
+            from_start=from_start,
+        )
+        if not clip_is_long_enough(start, end):
+            gnome_notify(
+                "Tramo demasiado corto",
+                f"Hace falta al menos {int(MIN_CLIP_SECONDS)} s de audio.",
+            )
+            return
+        timing = load_recording_timing(source)
+        started_at = timing.started_at if timing is not None else datetime.now()
+        pauses = timing.pauses if timing is not None else ()
+        dest = clip_output_path(
+            source,
+            start,
+            end,
+            started_at=started_at,
+            pauses=pauses,
+        )
+        self._clip_busy = True
+        self._paint()
+        log_line(f"extrayendo tramo {start:.1f}-{end:.1f}s -> {dest.name}")
+
+        def worker() -> None:
+            try:
+                extract_audio_clip(source, dest, start, end)
+            except Exception as error:  # noqa: BLE001 - avisar en UI
+                GLib.idle_add(self._on_clip_extract_done, None, str(error))
+                return
+            GLib.idle_add(self._on_clip_extract_done, dest, None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_clip_extract_done(self, dest: Path | None, error: str | None) -> bool:
+        self._clip_busy = False
+        self._paint()
+        if error or dest is None:
+            log_line(f"falló extract de tramo: {error}")
+            gnome_notify("No se pudo recortar", error or "error desconocido")
+            return False
+        log_line(f"tramo listo para transcribir {dest}")
+        self._enqueue_transcribe(dest)
+        gnome_notify("Tramo en cola", dest.name)
+        return False
+
     def _on_new_meeting(self, *_args: object) -> None:
         if not self._record_alive():
             return
         self.restart_after_stop = True
-        log_line("nueva reunión pedida")
+        log_line("cortar y seguir pedido")
         self._stop_recording()
         self._paint()
 
